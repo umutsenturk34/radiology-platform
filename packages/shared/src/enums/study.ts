@@ -1,0 +1,37 @@
+/**
+ * Source of truth: docs/DATA_MODEL.md section 18 and
+ * docs/WORKFLOW_STATE_MACHINE.md — both must use the identical enum.
+ */
+
+export const StudyStatus = {
+  INITIAL: 'INITIAL',
+  WAITING_ACCEPTANCE: 'WAITING_ACCEPTANCE',
+  IMAGES_PENDING: 'IMAGES_PENDING',
+
+  UNREAD: 'UNREAD',
+  READING: 'READING',
+  READ: 'READ',
+
+  WAITING_TRANSCRIPTION: 'WAITING_TRANSCRIPTION',
+  TRANSCRIBING: 'TRANSCRIBING',
+  WAITING_APPROVAL: 'WAITING_APPROVAL',
+
+  FINAL: 'FINAL',
+
+  HBYS_PENDING: 'HBYS_PENDING',
+  HBYS_SENT: 'HBYS_SENT',
+  HBYS_FAILED: 'HBYS_FAILED',
+
+  IMAGE_MISSING: 'IMAGE_MISSING',
+  WONT_REPORT: 'WONT_REPORT',
+  HOSPITAL_DOCTOR: 'HOSPITAL_DOCTOR',
+
+  REVISION_REQUESTED: 'REVISION_REQUESTED',
+  REVISION_IN_PROGRESS: 'REVISION_IN_PROGRESS',
+
+  ADDENDUM_REQUIRED: 'ADDENDUM_REQUIRED',
+} as const;
+
+export type StudyStatus = (typeof StudyStatus)[keyof typeof StudyStatus];
+
+export const STUDY_STATUSES: readonly StudyStatus[] = Object.values(StudyStatus);

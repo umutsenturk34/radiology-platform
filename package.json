@@ -1,0 +1,31 @@
+{
+  "name": "radiology-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Radyoloji Goruntuleme ve Raporlama Platformu — pilot monorepo",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build": "pnpm -r --if-present build",
+    "build:shared": "pnpm --filter @radiology/shared build",
+    "typecheck": "pnpm run build:shared && pnpm -r --if-present typecheck",
+    "test": "pnpm run build:shared && pnpm -r --if-present test",
+    "test:e2e": "pnpm run build:shared && pnpm --filter backend test:e2e",
+    "backend": "pnpm --filter backend",
+    "shared": "pnpm --filter @radiology/shared"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4"
+  }
+}

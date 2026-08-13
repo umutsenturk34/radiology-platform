@@ -197,7 +197,7 @@ de çalıştırılır.
 
 **Owner:** SHARED  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** none
 
 ### Amaç
@@ -221,13 +221,21 @@ pnpm monorepo temelini oluştur.
 - root lint komutu çalışıyor
 - root typecheck komutu çalışıyor
 
+### Completed
+
+- pnpm workspace (`apps/*`, `packages/*`), root `package.json`, `pnpm-workspace.yaml`
+- `tsconfig.base.json` (strict), flat ESLint 9 config, Prettier, `.gitignore`, `.npmrc`
+- Verified: `pnpm install`, `pnpm lint`, `pnpm typecheck`, `pnpm build` all pass
+- Note: pnpm was installed via `npm i -g pnpm@10` because corepack fails on Node 22.22.2
+  (`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`)
+
 ---
 
 ## SHARED-002 — Shared Package Setup
 
 **Owner:** SHARED  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** SHARED-001
 
 ### Amaç
@@ -253,6 +261,15 @@ pnpm monorepo temelini oluştur.
 - frontend shared package import edebiliyor
 - duplicate enum yazılmıyor
 
+### Completed
+
+- `@radiology/shared` with all 8 required enums + `ApiError` / `PaginatedResponse`
+- Enums modelled as const object + union type (usable as value and type, no Prisma leakage)
+- Also exported: `ApiErrorCode`, `ApiErrorResponse`, `ApiResponse`, `PaginationMeta`,
+  `SortOrder`, `REQUEST_ID_HEADER`, pagination defaults
+- Backend import verified by `pnpm typecheck` + passing backend tests
+- Frontend import is verified by Codex under FRONTEND-002 (frontend app does not exist yet)
+
 ---
 
 # 11. BACKEND FOUNDATION
@@ -263,7 +280,7 @@ pnpm monorepo temelini oluştur.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** SHARED-001
 
 ### Yapılacaklar
@@ -284,6 +301,20 @@ GET /api/v1/health
 ```
 
 200 dönüyor.
+
+### Completed
+
+- NestJS 11 modular monolith, TypeScript strict, `/api/v1` global prefix
+- Global `ValidationPipe` (whitelist + forbidNonWhitelisted) emitting
+  `422 VALIDATION_ERROR` with `details.fields` per API_CONTRACT section 112
+- `AllExceptionsFilter` producing the standard error envelope; stack traces never leave the server
+- `ResponseEnvelopeInterceptor` wrapping payloads in `{ data }`, passing `{ data, meta }` through
+- CORS origin allowlist + credentials (no wildcard), `X-Request-Id` correlation via
+  `AsyncLocalStorage`, structured JSON logging
+- Health endpoint has a pluggable indicator registry so Prisma/Redis can report real state;
+  returns 503 when a dependency is down
+- Verified: 7 unit tests, 6 e2e tests, lint, typecheck, `nest build`, and a live server
+  returning `200 {"data":{"status":"ok",...}}` on `GET /api/v1/health`
 
 ---
 
