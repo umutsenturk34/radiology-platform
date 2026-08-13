@@ -2,10 +2,9 @@
  * Extension point for dependency health.
  *
  * Infrastructure modules (Prisma, Redis, object storage, queues) register an
- * indicator so `GET /api/v1/health` can report their real state instead of a
- * hard-coded value.
+ * indicator with `HealthRegistry` so `GET /api/v1/health` reports their real
+ * state instead of a hard-coded value.
  */
-export const HEALTH_INDICATOR = Symbol('HEALTH_INDICATOR');
 
 export type DependencyStatus = 'up' | 'down';
 

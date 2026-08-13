@@ -322,7 +322,7 @@ GET /api/v1/health
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** BACKEND-001
 
 ### Yapılacaklar
@@ -345,7 +345,7 @@ GET /api/v1/health
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** BACKEND-001
 
 ### Yapılacaklar

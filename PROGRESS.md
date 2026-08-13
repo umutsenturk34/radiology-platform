@@ -10,11 +10,12 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** NOT STARTED / DOCUMENTATION READY  
+**Overall Status:** IN DEVELOPMENT — foundation complete  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
-**Environment:** Local development preparation  
-**Deployment:** Not deployed
+**Environment:** Local development  
+**Deployment:** Not deployed  
+**Last Updated:** 2026-08-13 (Claude / backend)
 
 Ana hedef:
 
@@ -140,52 +141,78 @@ Auth
 ## Current Backend Status
 
 ```text
-NOT STARTED
+FOUNDATION COMPLETE — infrastructure-dependent tasks blocked
 ```
 
 ## Current Backend Task
 
 ```text
-None claimed yet.
+BACKEND-002 (Prisma)  — IN_PROGRESS, blocked on a real DATABASE_URL
+BACKEND-003 (Redis)   — IN_PROGRESS, blocked on a real REDIS_URL
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-SHARED-001 — Root Monorepo Setup
-```
+When DATABASE_URL + REDIS_URL are available:
+  finish BACKEND-002 / BACKEND-003 -> BACKEND-004 -> BACKEND-005 -> BACKEND-006
 
-If SHARED-001 is already completed when reading this file, select the next highest-priority available backend/shared task from `docs/TASK_QUEUE.md`.
+Meanwhile (no live services needed):
+  BACKEND-010 HL7 adapter contract
+  workflow transition table + pure unit tests
+```
 
 ## Recently Completed Backend Tasks
 
 ```text
-None yet.
+SHARED-001  Root monorepo setup            DONE
+SHARED-002  Shared contracts package       DONE
+BACKEND-001 NestJS application bootstrap   DONE
 ```
 
 ## Backend Blockers
 
 ```text
-None currently known.
+BLOCKED_TECHNICAL — no local PostgreSQL/Redis (see section 21)
 ```
 
 ## Backend Known Issues
 
 ```text
-None yet.
+corepack cannot run pnpm on Node 22.22.2
+(ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING).
+Workaround applied: npm i -g pnpm@10 (currently pnpm 10.34.5).
+
+npm registry throughput on this machine is ~20-40 KB/s.
+Installs take minutes; run them in the background and be patient
+rather than cancelling and retrying.
 ```
 
 ## Backend Resume Pointer
 
 ```text
-Read:
-AGENTS.md
-CLAUDE.md
-docs/TASK_QUEUE.md
-docs/BACKEND.md
+Current Task:
+BACKEND-002 + BACKEND-003
 
-Then:
-Claim highest-priority available BACKEND/SHARED task.
+Current State:
+Prisma schema written for all 10 Phase-1 models and formatted successfully.
+PrismaService/PrismaModule + RedisService/RedisModule written with health
+indicators, but NOT yet wired into AppModule, because the app must not be
+committed in a state that cannot boot.
+
+Last Successful Command:
+pnpm build / pnpm lint / pnpm typecheck / backend unit + e2e tests — all pass.
+
+Current Problem:
+No PostgreSQL or Redis reachable from this machine
+(no Docker, no Homebrew, nothing listening on 5432/6379).
+
+Next Action:
+1. Put the real DATABASE_URL / REDIS_URL into apps/backend/.env (git-ignored).
+2. pnpm --filter backend exec prisma migrate dev --name init
+3. Register PrismaModule + RedisModule in src/app.module.ts.
+4. Verify GET /api/v1/health reports database + redis as "up".
+5. Mark BACKEND-002 / BACKEND-003 DONE, continue with BACKEND-004.
 ```
 
 ---
@@ -665,6 +692,73 @@ NOT_RUN
 ---
 
 # 21. ACTIVE BLOCKERS
+
+## BLOCKED_TECHNICAL
+
+### BLOCKER: BACKEND-002 / BACKEND-003 — no PostgreSQL or Redis available
+
+Type:
+
+```text
+BLOCKED_TECHNICAL
+```
+
+Problem:
+
+```text
+The development machine has no PostgreSQL and no Redis, and no way to run them
+locally: Docker, Homebrew, psql and redis-server are all absent, and nothing is
+listening on 5432/6379.
+```
+
+Evidence:
+
+```text
+which docker / brew / psql / redis-server -> all "command not found"
+lsof -nP -iTCP -sTCP:LISTEN                -> no 5432/6379 listener
+No /Applications/Postgres.app, no /opt/homebrew, no /usr/local/opt/postgres*
+```
+
+Attempts:
+
+```text
+1. Searched for existing local installs and listening ports — none found.
+2. Confirmed Prisma schema correctness offline instead:
+   prisma format + prisma validate + prisma generate all succeed.
+3. Wrote PrismaService / RedisService with health indicators so only the live
+   connection step remains.
+```
+
+Impact:
+
+```text
+Cannot satisfy:
+  BACKEND-002 "migration çalışıyor" / "backend database'e bağlanıyor"
+  BACKEND-003 "Redis ping başarılı"
+
+Everything downstream that needs persistence is blocked:
+  BACKEND-004, BACKEND-005, BACKEND-006, BACKEND-007, BACKEND-008,
+  BACKEND-009, BACKEND-011 .. BACKEND-013
+```
+
+Safe independent work:
+
+```text
+Prisma schema modelling (done, validated offline)
+HL7/PACS/HBYS adapter contracts
+Workflow transition table and its pure unit tests
+Shared contract work
+```
+
+Required next action:
+
+```text
+Supply a reachable DATABASE_URL and REDIS_URL (pilot target is Railway;
+Neon + Upstash free tiers also work) into apps/backend/.env, then run:
+  pnpm --filter backend exec prisma migrate dev --name init
+```
+
+---
 
 ## BLOCKED_SPEC
 

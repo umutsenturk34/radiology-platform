@@ -1,12 +1,8 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppLogger } from '../common/logging/app-logger.service';
-import {
-  HEALTH_INDICATOR,
-  type HealthIndicator,
-  type HealthIndicatorResult,
-  type HealthReport,
-} from './health.types';
+import { HealthRegistry } from './health.registry';
+import type { HealthIndicator, HealthIndicatorResult, HealthReport } from './health.types';
 
 /** A hung dependency must not hang the health endpoint. */
 const INDICATOR_TIMEOUT_MS = 3000;
@@ -17,10 +13,8 @@ export class HealthService {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly registry: HealthRegistry,
     logger: AppLogger,
-    @Optional()
-    @Inject(HEALTH_INDICATOR)
-    private readonly indicators: HealthIndicator[] = [],
   ) {
     this.logger = logger.child(HealthService.name);
   }
@@ -29,7 +23,7 @@ export class HealthService {
     const dependencies: Record<string, HealthIndicatorResult> = {};
 
     const results = await Promise.all(
-      (this.indicators ?? []).map(async (indicator) => ({
+      this.registry.list().map(async (indicator) => ({
         name: indicator.name,
         result: await this.runIndicator(indicator),
       })),
@@ -71,7 +65,10 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`Health check timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error(`Health check timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
       }),
     ]);
   } finally {

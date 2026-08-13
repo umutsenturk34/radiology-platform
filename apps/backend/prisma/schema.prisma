@@ -1,0 +1,393 @@
+// Radyoloji platformu — Prisma schema
+//
+// Source of truth: docs/DATA_MODEL.md. Any change here must follow
+// DATA_MODEL.md -> schema.prisma -> migration -> test -> commit
+// (docs/BACKEND.md section 17).
+//
+// Phase 1 scope (TASK_QUEUE BACKEND-004): User, UserSession, Hospital,
+// UserHospitalAccess, Patient, Study, StudyStatusHistory, StudyAssignment,
+// AuditLog, SlaPolicy.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums — must stay identical to packages/shared (DATA_MODEL.md section 18)
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  DOCTOR
+  REPORTER
+  OPERATION
+  MANAGER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum HospitalStatus {
+  ACTIVE
+  INACTIVE
+  TEST
+}
+
+enum PatientCategory {
+  ACIL
+  YOGUN_BAKIM
+  YATAN
+  NORMAL
+}
+
+enum StudyStatus {
+  INITIAL
+  WAITING_ACCEPTANCE
+  IMAGES_PENDING
+
+  UNREAD
+  READING
+  READ
+
+  WAITING_TRANSCRIPTION
+  TRANSCRIBING
+  WAITING_APPROVAL
+
+  FINAL
+
+  HBYS_PENDING
+  HBYS_SENT
+  HBYS_FAILED
+
+  IMAGE_MISSING
+  WONT_REPORT
+  HOSPITAL_DOCTOR
+
+  REVISION_REQUESTED
+  REVISION_IN_PROGRESS
+
+  ADDENDUM_REQUIRED
+}
+
+enum AssignmentType {
+  DOCTOR
+  REPORTER
+}
+
+// ---------------------------------------------------------------------------
+// Identity and access
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  username     String     @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole
+  status       UserStatus @default(ACTIVE)
+
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions        UserSession[]
+  hospitalAccess  UserHospitalAccess[] @relation("UserHospitalAccessUser")
+  grantedAccess   UserHospitalAccess[] @relation("UserHospitalAccessGrantedBy")
+  doctorStudies   Study[]              @relation("StudyAssignedDoctor")
+  reporterStudies Study[]              @relation("StudyAssignedReporter")
+  statusHistory   StudyStatusHistory[]
+  assignments     StudyAssignment[]    @relation("StudyAssignmentUser")
+  assignmentsMade StudyAssignment[]    @relation("StudyAssignmentAssignedBy")
+  auditLogs       AuditLog[]
+
+  @@index([role, status])
+  @@map("users")
+}
+
+/// Refresh session. The refresh token itself is never stored in plain text
+/// (DATA_MODEL.md section 70).
+model UserSession {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+
+  refreshTokenHash String @unique
+
+  ipAddress String?
+  userAgent String?
+
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model Hospital {
+  id        String         @id @default(uuid()) @db.Uuid
+  code      String         @unique
+  name      String
+  shortName String?
+  status    HospitalStatus @default(ACTIVE)
+  timezone  String         @default("Europe/Istanbul")
+
+  /// Opaque key used by inbound integrations to identify the hospital.
+  integrationKey String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userAccess UserHospitalAccess[]
+  patients   Patient[]
+  studies    Study[]
+  auditLogs  AuditLog[]
+
+  @@index([status])
+  @@map("hospitals")
+}
+
+/// Which hospitals a user may see. Every study read/mutation is scoped through
+/// this table (docs/AUTH_ROLES_PERMISSIONS.md).
+model UserHospitalAccess {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  hospitalId String @db.Uuid
+
+  createdAt DateTime @default(now())
+  createdBy String?  @db.Uuid
+
+  user      User     @relation("UserHospitalAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  hospital  Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  grantedBy User?    @relation("UserHospitalAccessGrantedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([userId, hospitalId])
+  @@index([hospitalId])
+  @@map("user_hospital_access")
+}
+
+// ---------------------------------------------------------------------------
+// Clinical entities
+// ---------------------------------------------------------------------------
+
+model Patient {
+  id         String @id @default(uuid()) @db.Uuid
+  hospitalId String @db.Uuid
+
+  /// Patient identifier as supplied by the hospital HBYS. Unique per hospital
+  /// only — the same value may exist in another hospital (DATA_MODEL.md 13).
+  externalPatientId String
+  nationalIdMasked  String?
+
+  firstName String
+  lastName  String
+
+  birthDate DateTime?
+  /// Free-form: DATA_MODEL.md does not define a gender enum, so no value set
+  /// is invented here.
+  gender    String?
+
+  anonymousCode String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hospital Hospital @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  studies  Study[]
+
+  @@unique([hospitalId, externalPatientId])
+  @@index([hospitalId, lastName, firstName])
+  @@map("patients")
+}
+
+model Study {
+  id         String @id @default(uuid()) @db.Uuid
+  hospitalId String @db.Uuid
+  patientId  String @db.Uuid
+
+  accessionNumber String
+
+  externalOrderId    String?
+  externalProtocolId String?
+
+  modality         String?
+  studyDescription String?
+
+  category PatientCategory
+  status   StudyStatus     @default(INITIAL)
+
+  studyInstanceUid String?
+
+  firstHl7ReceivedAt  DateTime?
+  secondHl7ReceivedAt DateTime?
+
+  /// SLA snapshot: the deadline is frozen at arrival so a later policy change
+  /// cannot silently move historical deadlines (DATA_MODEL.md section 66).
+  arrivalAt     DateTime?
+  slaDeadlineAt DateTime?
+
+  imagesAvailableAt DateTime?
+
+  assignedDoctorId   String? @db.Uuid
+  assignedReporterId String? @db.Uuid
+
+  readingStartedAt   DateTime?
+  readingCompletedAt DateTime?
+
+  transcriptionStartedAt   DateTime?
+  transcriptionCompletedAt DateTime?
+
+  finalizedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hospital         Hospital             @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  patient          Patient              @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  assignedDoctor   User?                @relation("StudyAssignedDoctor", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+  assignedReporter User?                @relation("StudyAssignedReporter", fields: [assignedReporterId], references: [id], onDelete: SetNull)
+  statusHistory    StudyStatusHistory[]
+  assignments      StudyAssignment[]
+  auditLogs        AuditLog[]
+
+  /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
+  /// are only unique within a hospital.
+  @@unique([hospitalId, accessionNumber])
+  @@index([hospitalId, status, arrivalAt])
+  @@index([hospitalId, category])
+  @@index([status])
+  @@index([slaDeadlineAt])
+  @@index([assignedDoctorId])
+  @@index([assignedReporterId])
+  @@index([patientId])
+  @@map("studies")
+}
+
+/// Append-only record of every workflow transition (DATA_MODEL.md section 20).
+model StudyStatusHistory {
+  id      String @id @default(uuid()) @db.Uuid
+  studyId String @db.Uuid
+
+  fromStatus StudyStatus?
+  toStatus   StudyStatus
+
+  actorUserId String?   @db.Uuid
+  actorRole   UserRole?
+
+  reason   String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  study     Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  actorUser User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([studyId, createdAt])
+  @@index([toStatus])
+  @@map("study_status_history")
+}
+
+/// Assignment history. Study.assignedDoctorId / assignedReporterId hold the
+/// current state; this table preserves the trail (DATA_MODEL.md section 21).
+model StudyAssignment {
+  id      String @id @default(uuid()) @db.Uuid
+  studyId String @db.Uuid
+  userId  String @db.Uuid
+
+  type AssignmentType
+
+  assignedAt DateTime  @default(now())
+  releasedAt DateTime?
+
+  assignedBy String? @db.Uuid
+  reason     String?
+
+  createdAt DateTime @default(now())
+
+  study          Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  user           User  @relation("StudyAssignmentUser", fields: [userId], references: [id], onDelete: Restrict)
+  assignedByUser User? @relation("StudyAssignmentAssignedBy", fields: [assignedBy], references: [id], onDelete: SetNull)
+
+  @@index([studyId, type])
+  @@index([userId, type])
+  @@map("study_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Audit and configuration
+// ---------------------------------------------------------------------------
+
+/// Append-only. Never updated or deleted through the normal API
+/// (DATA_MODEL.md section 68).
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Controlled string constant rather than an enum so new event types can be
+  /// added without a migration (DATA_MODEL.md section 69).
+  eventType String
+
+  actorUserId String?   @db.Uuid
+  actorRole   UserRole?
+
+  hospitalId String? @db.Uuid
+  patientId  String? @db.Uuid
+  studyId    String? @db.Uuid
+
+  entityType String?
+  entityId   String?
+
+  metadata Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  actorUser User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  hospital  Hospital? @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
+  study     Study?    @relation(fields: [studyId], references: [id], onDelete: SetNull)
+
+  @@index([studyId, createdAt])
+  @@index([hospitalId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
+}
+
+/// SLA durations held as configuration instead of magic numbers
+/// (DATA_MODEL.md section 64).
+///
+/// Seeded: ACIL=120, YATAN=720, NORMAL=1440, warning=20.
+/// YOGUN_BAKIM is intentionally NOT seeded — its duration is undefined
+/// (BLOCKED_SPEC) and must not be invented.
+model SlaPolicy {
+  id String @id @default(uuid()) @db.Uuid
+
+  category             PatientCategory
+  durationMinutes      Int
+  warningBeforeMinutes Int             @default(20)
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Not a unique constraint: superseded policies stay as inactive history
+  // rows. "At most one active policy per category" is enforced in the service
+  // layer and by the seed.
+  @@index([category, active])
+  @@map("sla_policies")
+}
