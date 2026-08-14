@@ -322,7 +322,7 @@ GET /api/v1/health
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS  
+**Status:** DONE  
 **Depends On:** BACKEND-001
 
 ### Yapılacaklar
@@ -339,13 +339,24 @@ GET /api/v1/health
 - backend database'e bağlanıyor
 - connection failure düzgün hata veriyor
 
+### Completed
+
+- Prisma 6.19.3 + PrismaService (startup'ta `$connect`, health için `SELECT 1`)
+- Migration `20260814144451_init` gerçek Railway PostgreSQL üzerinde uygulandı
+  (11 tablo: 10 model + `_prisma_migrations`, 6 enum tipi)
+- Canlı doğrulama: `GET /api/v1/health` → `database: {status: "up", latencyMs: 255}`
+- Connection failure: erişilemez DATABASE_URL ile yapılandırılmış `error` logu üretip
+  exit code 1 ile kapanıyor; connection string / parola loglanmıyor (doğrulandı: 0 eşleşme)
+- Railway public erişimi TCP proxy üzerinden; `sslmode=require` gerekli
+  (SSL olmadan P1001 alınıyor)
+
 ---
 
 ## BACKEND-003 — Redis Setup
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS  
+**Status:** DONE  
 **Depends On:** BACKEND-001
 
 ### Yapılacaklar
@@ -358,6 +369,17 @@ GET /api/v1/health
 
 - Redis ping başarılı
 - health response Redis durumunu gösterebiliyor
+
+### Completed
+
+- ioredis 6 tabanlı RedisService; `lazyConnect` + startup'ta explicit connect & PING
+- Railway Redis 8.2.8'e karşı doğrulandı: `PING -> PONG` (252ms), SET/GET/DEL çalışıyor
+- Canlı doğrulama: `GET /api/v1/health` → `redis: {status: "up", latencyMs: 248}`
+- Redis erişilemezken uygulama fail-closed davranıyor: hata loglanıp process sonlanıyor,
+  "kilit yok" varsayımı yapılmıyor (CLAUDE.md section 17)
+- `maxRetriesPerRequest: null` ayarı BullMQ (BACKEND-033) ile uyumlu olacak şekilde seçildi
+- Railway Redis'te public erişim yoktu; `railway tcp-proxy create --port 6379 --service Redis`
+  ile TCP proxy oluşturuldu
 
 ---
 

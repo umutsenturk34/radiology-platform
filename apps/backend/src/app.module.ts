@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import configuration from './config/configuration';
 import { CommonModule } from './common/common.module';
 import { HealthModule } from './health/health.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
 
 /**
  * Root module of the modular monolith.
@@ -20,6 +22,8 @@ import { HealthModule } from './health/health.module';
     }),
     CommonModule,
     HealthModule,
+    PrismaModule,
+    RedisModule,
   ],
 })
 export class AppModule {}

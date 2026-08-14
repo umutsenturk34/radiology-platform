@@ -5,20 +5,72 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { loadConfiguration } from '../src/config/configuration';
 import { AppLogger } from '../src/common/logging/app-logger.service';
+import { PrismaService } from '../src/prisma/prisma.service';
+import { RedisService } from '../src/redis/redis.service';
+
+/**
+ * PostgreSQL and Redis are stubbed here on purpose.
+ *
+ * The only databases configured for this pilot are the shared Railway
+ * instances, and an automated suite must never connect to them: a stray write
+ * or a truncate would destroy real pilot workflow state. The module wiring,
+ * routing, envelopes and health aggregation are still exercised for real.
+ *
+ * Live connectivity is verified separately against a running server.
+ */
+function createPrismaStub(alive = true) {
+  return {
+    ping: jest.fn(async () => {
+      if (!alive) throw new Error('database unavailable');
+      return true;
+    }),
+    $connect: jest.fn(async () => undefined),
+    $disconnect: jest.fn(async () => undefined),
+    onModuleInit: jest.fn(async () => undefined),
+    onModuleDestroy: jest.fn(async () => undefined),
+  };
+}
+
+function createRedisStub(alive = true) {
+  return {
+    ping: jest.fn(async () => {
+      if (!alive) throw new Error('redis unavailable');
+      return true;
+    }),
+    getClient: jest.fn(() => {
+      throw new Error('Redis client is not available in tests.');
+    }),
+    onModuleInit: jest.fn(async () => undefined),
+    onModuleDestroy: jest.fn(async () => undefined),
+  };
+}
+
+async function bootstrapTestApp(options: {
+  databaseAlive?: boolean;
+  redisAlive?: boolean;
+}): Promise<INestApplication> {
+  const moduleRef: TestingModule = await Test.createTestingModule({
+    imports: [AppModule],
+  })
+    .overrideProvider(PrismaService)
+    .useValue(createPrismaStub(options.databaseAlive ?? true))
+    .overrideProvider(RedisService)
+    .useValue(createRedisStub(options.redisAlive ?? true))
+    .compile();
+
+  const app = moduleRef.createNestApplication({ logger: false });
+  // 'error' keeps the suite output clean without disabling the logger wiring.
+  const config = loadConfiguration({ ...process.env, LOG_LEVEL: 'error' });
+  configureApp(app, config, new AppLogger('error'));
+  await app.init();
+  return app;
+}
 
 describe('Health (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleRef.createNestApplication({ logger: false });
-    // 'error' keeps the suite output clean without disabling the logger wiring.
-    const config = loadConfiguration({ ...process.env, LOG_LEVEL: 'error' });
-    configureApp(app, config, new AppLogger('error'));
-    await app.init();
+    app = await bootstrapTestApp({});
   });
 
   afterAll(async () => {
@@ -29,12 +81,18 @@ describe('Health (e2e)', () => {
     const response = await request(app.getHttpServer()).get('/api/v1/health').expect(200);
 
     expect(response.body).toHaveProperty('data');
-    expect(response.body.data).toMatchObject({
-      status: 'ok',
-      dependencies: {},
-    });
+    expect(response.body.data).toMatchObject({ status: 'ok' });
     expect(typeof response.body.data.uptimeSeconds).toBe('number');
     expect(typeof response.body.data.timestamp).toBe('string');
+  });
+
+  it('reports both infrastructure dependencies', async () => {
+    const response = await request(app.getHttpServer()).get('/api/v1/health').expect(200);
+
+    expect(response.body.data.dependencies).toMatchObject({
+      database: { status: 'up' },
+      redis: { status: 'up' },
+    });
   });
 
   it('serves the API only under the /api/v1 prefix', async () => {
@@ -76,5 +134,25 @@ describe('Health (e2e)', () => {
         details: {},
       },
     });
+  });
+});
+
+describe('Health (e2e) — degraded dependency', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await bootstrapTestApp({ databaseAlive: false });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('returns 503 and marks the failing dependency down', async () => {
+    const response = await request(app.getHttpServer()).get('/api/v1/health').expect(503);
+
+    expect(response.body.data.status).toBe('degraded');
+    expect(response.body.data.dependencies.database.status).toBe('down');
+    expect(response.body.data.dependencies.redis.status).toBe('up');
   });
 });
