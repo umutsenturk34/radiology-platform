@@ -387,7 +387,7 @@ GET /api/v1/health
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-002, SHARED-002
 
 ### Modeller
@@ -409,13 +409,25 @@ GET /api/v1/health
 - ilişkiler DATA_MODEL ile uyumlu
 - `hospitalId + accessionNumber` unique
 
+### Completed
+
+- 10 model migration `20260814144451_init` ile Railway PostgreSQL'e uygulandı
+- Canlı veritabanından doğrulandı: 19 unique index, 17 foreign key
+- `studies_hospitalId_accessionNumber_key` mevcut — accession number global unique
+  DEĞİL, yalnızca hastane içinde unique (DATA_MODEL section 16)
+- Diğer doğrulanan unique kısıtlar: `patients (hospitalId, externalPatientId)`,
+  `user_hospital_access (userId, hospitalId)`, `users.email`, `users.username`,
+  `hospitals.code`, `user_sessions.refreshTokenHash`
+- FIFO havuz sorgusu için `studies (hospitalId, status, arrivalAt)` index'i mevcut
+- SLA snapshot alanları (`arrivalAt`, `slaDeadlineAt`) Study üzerinde tutuluyor
+
 ---
 
 ## BACKEND-005 — Seed System
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** BACKEND-004
 
 ### Seed
@@ -440,6 +452,26 @@ manager@test.local
 
 - seed birden fazla çalıştırılınca duplicate oluşturmuyor
 - tüm test hesapları login için kullanılabilir
+
+### Durum (yarım kaldı)
+
+Yazıldı ama **henüz çalıştırılmadı** — acceptance doğrulanmamıştır.
+
+Tamamlanan:
+- `src/prisma/seed.ts`: test hastanesi, 4 rol kullanıcısı, 3 SLA policy
+- Idempotency gerçek unique kısıtlar üzerinden upsert ile kuruldu
+  (`hospitals.code`, `users.email`, `user_hospital_access (userId, hospitalId)`);
+  SlaPolicy'de unique olmadığı için önce aktif kayıt aranıyor
+- Re-run mevcut kullanıcıların parolasını sıfırlamıyor (kullanımdaki
+  credential'ı sessizce değiştirmemek için)
+- argon2 (`@node-rs/argon2`) ile hashleme; parola hiçbir yere loglanmıyor
+- `YOGUN_BAKIM` bilerek seed edilmedi (BLOCKED_SPEC — süre tanımsız)
+
+Kalan adımlar:
+1. `apps/backend/package.json` içine seed script'i + `prisma.seed` konfigürasyonu ekle
+2. `.env.example` içine `SEED_DEFAULT_PASSWORD` satırını ekle
+3. Seed'i çalıştır, ardından **ikinci kez** çalıştırıp duplicate oluşmadığını doğrula
+4. Kayıt sayılarını gerçek sorgu ile doğrula, ardından DONE yap
 
 ---
 

@@ -10,12 +10,12 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — foundation complete  
+**Overall Status:** IN DEVELOPMENT — persistence layer live on Railway  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
-**Environment:** Local development  
-**Deployment:** Not deployed  
-**Last Updated:** 2026-08-13 (Claude / backend)
+**Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
+**Deployment:** Backend not deployed yet; databases provisioned  
+**Last Updated:** 2026-08-14 (Claude / backend)
 
 Ana hedef:
 
@@ -141,39 +141,40 @@ Auth
 ## Current Backend Status
 
 ```text
-FOUNDATION COMPLETE — infrastructure-dependent tasks blocked
+PERSISTENCE LAYER LIVE — auth not started
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-002 (Prisma)  — IN_PROGRESS, blocked on a real DATABASE_URL
-BACKEND-003 (Redis)   — IN_PROGRESS, blocked on a real REDIS_URL
+BACKEND-005 (Seed) — IN_PROGRESS, written but not yet executed
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-When DATABASE_URL + REDIS_URL are available:
-  finish BACKEND-002 / BACKEND-003 -> BACKEND-004 -> BACKEND-005 -> BACKEND-006
-
-Meanwhile (no live services needed):
-  BACKEND-010 HL7 adapter contract
-  workflow transition table + pure unit tests
+BACKEND-005 finish (run + verify idempotency)
+-> BACKEND-006 Authentication
+-> BACKEND-007 Role Guard
+-> BACKEND-008 Hospital Access Guard
 ```
 
 ## Recently Completed Backend Tasks
 
 ```text
-SHARED-001  Root monorepo setup            DONE
-SHARED-002  Shared contracts package       DONE
-BACKEND-001 NestJS application bootstrap   DONE
+SHARED-001  Root monorepo setup                DONE
+SHARED-002  Shared contracts package           DONE
+BACKEND-001 NestJS application bootstrap       DONE
+BACKEND-002 PostgreSQL + Prisma setup          DONE
+BACKEND-003 Redis setup                        DONE
+BACKEND-004 Core database models phase 1       DONE
 ```
 
 ## Backend Blockers
 
 ```text
-BLOCKED_TECHNICAL — no local PostgreSQL/Redis (see section 21)
+None blocking. The earlier BLOCKED_TECHNICAL (no PostgreSQL/Redis) is RESOLVED:
+the pilot now uses the Railway "strong-courtesy" project, production environment.
 ```
 
 ## Backend Known Issues
@@ -186,33 +187,57 @@ Workaround applied: npm i -g pnpm@10 (currently pnpm 10.34.5).
 npm registry throughput on this machine is ~20-40 KB/s.
 Installs take minutes; run them in the background and be patient
 rather than cancelling and retrying.
+
+The local backend talks to the Railway PRODUCTION environment databases.
+There is no separate test database yet, which is why the e2e suite stubs
+PrismaService/RedisService instead of connecting. Integration tests that need
+real persistence will require a dedicated test database first.
+```
+
+## Backend Infrastructure Notes
+
+```text
+Railway project: strong-courtesy / production
+Access from a developer machine goes through TCP proxies, not the
+*.railway.internal hostnames (those resolve only inside Railway).
+
+PostgreSQL: public proxy existed already; sslmode=require is MANDATORY
+            (without it Prisma fails with P1001).
+Redis:      had no public endpoint; created with
+            railway tcp-proxy create --port 6379 --service Redis
+
+When the backend is deployed to Railway (DEVOPS-001) switch both URLs back to
+the internal hostnames and the TCP proxies can be removed.
 ```
 
 ## Backend Resume Pointer
 
 ```text
 Current Task:
-BACKEND-002 + BACKEND-003
+BACKEND-005 — Seed System
 
 Current State:
-Prisma schema written for all 10 Phase-1 models and formatted successfully.
-PrismaService/PrismaModule + RedisService/RedisModule written with health
-indicators, but NOT yet wired into AppModule, because the app must not be
-committed in a state that cannot boot.
+src/prisma/seed.ts is written, lints, typechecks and builds, but has NEVER
+been executed, so its acceptance criteria are unverified.
 
 Last Successful Command:
-pnpm build / pnpm lint / pnpm typecheck / backend unit + e2e tests — all pass.
+pnpm lint / pnpm typecheck / pnpm build  -> PASS
+backend unit tests 7 PASS, e2e tests 8 PASS
 
 Current Problem:
-No PostgreSQL or Redis reachable from this machine
-(no Docker, no Homebrew, nothing listening on 5432/6379).
+None. Work was paused deliberately at a green checkpoint.
 
 Next Action:
-1. Put the real DATABASE_URL / REDIS_URL into apps/backend/.env (git-ignored).
-2. pnpm --filter backend exec prisma migrate dev --name init
-3. Register PrismaModule + RedisModule in src/app.module.ts.
-4. Verify GET /api/v1/health reports database + redis as "up".
-5. Mark BACKEND-002 / BACKEND-003 DONE, continue with BACKEND-004.
+1. Add to apps/backend/package.json:
+     "scripts": { "seed": "ts-node src/prisma/seed.ts" }
+     "prisma":  { "seed":  "ts-node src/prisma/seed.ts" }
+2. Add SEED_DEFAULT_PASSWORD to apps/backend/.env.example
+   (dev fallback used by the script is PilotTest!2026).
+3. Run the seed, then run it a SECOND time and confirm no duplicates:
+     expect exactly 1 hospital, 4 users, 4 access rows, 3 SLA policies.
+4. Mark BACKEND-005 DONE, then start BACKEND-006 (Authentication):
+   login / refresh / logout / me, argon2 hashing, JWT access token,
+   HttpOnly refresh cookie, UserSession row with refreshTokenHash.
 ```
 
 ---
@@ -582,19 +607,21 @@ Vercel: NOT DEPLOYED
 ## Backend
 
 ```text
-Railway: NOT DEPLOYED
+Railway: NOT DEPLOYED (runs locally against Railway databases)
 ```
 
 ## PostgreSQL
 
 ```text
-NOT PROVISIONED
+PROVISIONED — Railway strong-courtesy / production
+Migration applied, reachable via TCP proxy with sslmode=require
 ```
 
 ## Redis
 
 ```text
-NOT PROVISIONED
+PROVISIONED — Railway strong-courtesy / production
+Redis 8.2.8, reachable via TCP proxy created for port 6379
 ```
 
 ## Object Storage
@@ -617,15 +644,29 @@ No development quality gate has been run yet.
 
 Current status:
 
+Measured on 2026-08-14 (backend):
+
 ```text
-Lint: NOT_RUN
-Typecheck: NOT_RUN
-Backend Tests: NOT_RUN
+Lint: PASS
+Typecheck: PASS
+Backend Unit Tests: 7 PASS / 0 FAIL
+Backend E2E Tests: 8 PASS / 0 FAIL
+Backend Build: PASS
+Integration Tests: NOT_RUN (no test database yet)
 Frontend Tests: NOT_RUN
-Integration Tests: NOT_RUN
-E2E Tests: NOT_RUN
-Backend Build: NOT_RUN
 Frontend Build: NOT_RUN
+```
+
+Live infrastructure verification (real Railway services):
+
+```text
+Prisma migration 20260814144451_init: APPLIED
+Tables created: 11 (10 models + _prisma_migrations)
+Unique indexes: 19, foreign keys: 17
+GET /api/v1/health -> 200, database up (255ms), redis up (248ms)
+Redis PING -> PONG on Redis 8.2.8
+Unreachable database -> structured error + exit code 1, no credential logged
+Unreachable Redis -> fails closed, process exits
 ```
 
 Agents must replace these values only with actual command results.
@@ -693,70 +734,22 @@ NOT_RUN
 
 # 21. ACTIVE BLOCKERS
 
-## BLOCKED_TECHNICAL
+## RESOLVED
 
-### BLOCKER: BACKEND-002 / BACKEND-003 — no PostgreSQL or Redis available
-
-Type:
+### BACKEND-002 / BACKEND-003 — no PostgreSQL or Redis available
 
 ```text
-BLOCKED_TECHNICAL
+Resolved on 2026-08-14.
 ```
 
-Problem:
+The pilot now uses the Railway `strong-courtesy` project (production
+environment) reached through TCP proxies. Migration `20260814144451_init` was
+applied, and `GET /api/v1/health` reports both `database` and `redis` as `up`
+against the live services.
 
-```text
-The development machine has no PostgreSQL and no Redis, and no way to run them
-locally: Docker, Homebrew, psql and redis-server are all absent, and nothing is
-listening on 5432/6379.
-```
-
-Evidence:
-
-```text
-which docker / brew / psql / redis-server -> all "command not found"
-lsof -nP -iTCP -sTCP:LISTEN                -> no 5432/6379 listener
-No /Applications/Postgres.app, no /opt/homebrew, no /usr/local/opt/postgres*
-```
-
-Attempts:
-
-```text
-1. Searched for existing local installs and listening ports — none found.
-2. Confirmed Prisma schema correctness offline instead:
-   prisma format + prisma validate + prisma generate all succeed.
-3. Wrote PrismaService / RedisService with health indicators so only the live
-   connection step remains.
-```
-
-Impact:
-
-```text
-Cannot satisfy:
-  BACKEND-002 "migration çalışıyor" / "backend database'e bağlanıyor"
-  BACKEND-003 "Redis ping başarılı"
-
-Everything downstream that needs persistence is blocked:
-  BACKEND-004, BACKEND-005, BACKEND-006, BACKEND-007, BACKEND-008,
-  BACKEND-009, BACKEND-011 .. BACKEND-013
-```
-
-Safe independent work:
-
-```text
-Prisma schema modelling (done, validated offline)
-HL7/PACS/HBYS adapter contracts
-Workflow transition table and its pure unit tests
-Shared contract work
-```
-
-Required next action:
-
-```text
-Supply a reachable DATABASE_URL and REDIS_URL (pilot target is Railway;
-Neon + Upstash free tiers also work) into apps/backend/.env, then run:
-  pnpm --filter backend exec prisma migrate dev --name init
-```
+Retained lesson: `*.railway.internal` hostnames resolve only inside Railway.
+Developer-machine access needs a TCP proxy, and PostgreSQL additionally
+requires `sslmode=require`.
 
 ---
 
@@ -1062,11 +1055,11 @@ Current:
 [x] Backend agent prompt
 [x] Frontend agent prompt
 
-[ ] Monorepo initialized
-[ ] Backend initialized
+[x] Monorepo initialized
+[x] Backend initialized
 [ ] Frontend initialized
-[ ] Database initialized
-[ ] Redis initialized
+[x] Database initialized
+[x] Redis initialized
 [ ] Auth completed
 [ ] HL7 mock completed
 [ ] Doctor workflow completed

@@ -26,6 +26,7 @@
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
+    "@node-rs/argon2": "^2.1.0",
     "@prisma/client": "^6.19.3",
     "@radiology/shared": "workspace:*",
     "class-transformer": "^0.5.1",
