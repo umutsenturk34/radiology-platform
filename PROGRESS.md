@@ -10,7 +10,7 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — auth layer live against Railway  
+**Overall Status:** IN DEVELOPMENT — HL7 → images-available chain live against Railway  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
 **Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
@@ -107,28 +107,28 @@ Agent operating files:
 Current phase:
 
 ```text
-PHASE 1
-Backend foundation — monorepo, persistence and auth are done;
-frontend not started
+PHASE 2
+Study domain — hospital scope, study queries, mock HL7 and the central
+workflow engine are done; frontend not started
 ```
 
 Next phase:
 
 ```text
-PHASE 2
-Study domain — hospital scope, study queries, mock HL7, workflow engine
+PHASE 3
+Doctor workflow — Redis study locking, start reading, dictation
 ```
 
 Primary next milestone:
 
 ```text
-Hospital scope guard
+Redis study lock
 +
-Study query service
+Start reading
 +
-Mock First / Second HL7
+Lock heartbeat / release / force release
 +
-Images available
+Doctor lock concurrency test
 ```
 
 ---
@@ -138,23 +138,25 @@ Images available
 ## Current Backend Status
 
 ```text
-AUTH LIVE — login/refresh/logout/me and role authorization working
-against the real Railway database with the seeded pilot accounts
+INTAKE CHAIN LIVE — a study now travels
+First HL7 -> Second HL7 -> Images Available -> UNREAD
+against the real Railway database, with hospital scope, audit and
+status history. Doctor/Reporter workflow not started.
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-008 (Hospital Access Guard) — next to claim
+BACKEND-015 (Redis Study Lock Service) — next to claim
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-008 Hospital Access Guard
--> BACKEND-009 Study Query Service
--> BACKEND-010 HL7 Adapter Contract
--> BACKEND-011 Mock First HL7
+BACKEND-015 Redis Study Lock Service
+-> BACKEND-016 Start Reading
+-> BACKEND-017 Lock heartbeat / release / force-release
+-> BACKEND-018 Doctor lock concurrency test
 ```
 
 ## Recently Completed Backend Tasks
@@ -169,6 +171,14 @@ BACKEND-004 Core database models phase 1       DONE
 BACKEND-005 Seed system                        DONE  (0127958)
 BACKEND-006 Authentication                     DONE  (dfd6219)
 BACKEND-007 Role guard                         DONE  (45f0620)
+BACKEND-008 Hospital access guard              DONE  (7dbf906)
+BACKEND-009 Study query service                DONE  (7dbf906)
+BACKEND-010 HL7 adapter contract               DONE  (ad57b52)
+BACKEND-011 Mock first HL7                     DONE  (9e18658)
+BACKEND-012 Mock second HL7                    DONE  (9e18658)
+BACKEND-013 Images available simulation        DONE  (9e18658)
+BACKEND-014 Workflow service                   DONE  (9e18658)
+BACKEND-050 DevTools security                  DONE  (9e18658)
 ```
 
 ## Backend Blockers
@@ -204,6 +214,17 @@ connections drained; starting a second instance immediately can exhaust the
 pool and make both fail.
 
 Auth endpoints have no rate limiting yet (DISCOVERED-001).
+
+Prisma's default 5s interactive-transaction limit was too short over the
+Railway TCP proxy and aborted a workflow transition (no partial state — the
+transaction rolled back). Now configurable via DATABASE_TRANSACTION_TIMEOUT_MS
+(default 15000). Tracked under DISCOVERED-002.
+
+Normalized HL7 clinical data has no model yet; it is preserved in the audit
+metadata and is not returned by GET /studies/:id (DISCOVERED-003).
+
+StudyDetail does not yet carry lock / pacs / derived SLA state / flags —
+their models do not exist yet (DISCOVERED-004).
 ```
 
 ## Backend Infrastructure Notes
@@ -226,38 +247,43 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-BACKEND-008 — Hospital Access Guard (not claimed yet)
+BACKEND-015 — Redis Study Lock Service (not claimed yet)
 
 Current State:
-BACKEND-005/006/007 are DONE and committed. The seed ran twice against the
-real Railway database (1 hospital, 4 users, 4 access rows, 3 SLA policies) and
-all four @test.local accounts log in for real. Auth is enforced by two global
-guards: JwtAuthGuard (deny by default, @Public() opts out) and RolesGuard.
+The whole study intake chain runs against the real Railway database:
+  First HL7 -> WAITING_ACCEPTANCE
+  Second HL7 -> IMAGES_PENDING (SLA clock starts, deadline frozen)
+  Images available -> UNREAD
+Every status change goes through WorkflowService, which validates against the
+transition table and writes the study row, status history and audit entry in
+one transaction. Dev tools are gated by DEV_TOOLS_ENABLED plus MANAGER.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 89 PASS, e2e tests 57 PASS
+backend unit tests 257 PASS, e2e tests 101 PASS
 
 Current Problem:
-None. Work paused at a green, committed checkpoint.
+None. Work paused at a green, committed checkpoint (9e18658).
 
 Next Action:
-1. Claim BACKEND-008 (Hospital Access Guard) in docs/TASK_QUEUE.md.
-2. Implement a hospital scope check on top of AuthenticatedUser.hospitalIds,
-   which JwtAuthGuard already resolves on every request. Expected error:
-   403 HOSPITAL_ACCESS_DENIED.
-3. Note: BACKEND-008's acceptance criteria are written against Study
-   endpoints (GET /studies/:id and the study list), which only land in
-   BACKEND-009. Either verify the guard with test-only probe routes, as
-   BACKEND-007 did, and close the criteria under BACKEND-009, or keep
-   BACKEND-008 IN_PROGRESS until the real study endpoints exist.
-4. Then BACKEND-009 (Study Query Service) with hospital scope applied to
-   both the list and the detail endpoint.
+1. Claim BACKEND-015 (Redis Study Lock Service).
+2. Implement acquire / heartbeat / release / forceRelease / getLock on Redis
+   with an atomic acquire (SET NX PX) and owner-checked release (Lua compare
+   and delete). Pilot defaults: TTL 60s, heartbeat 20s.
+   Redis unavailable must fail CLOSED — never assume "not locked"
+   (CLAUDE.md section 17).
+3. BACKEND-016 start-reading: DOCTOR + UNREAD + hospital scope + lock acquired
+   + doctor assigned + UNREAD -> READING via WorkflowService.
+4. BACKEND-017 heartbeat / release (owner only) and force-release
+   (OPERATION or MANAGER, reason mandatory, audited).
+5. BACKEND-018 concurrency test: doctor B must get 423 STUDY_LOCKED.
 
 Local run notes:
 - Start: cd apps/backend && node dist/main.js  (reads apps/backend/.env)
 - Before restarting, make sure the old process is gone and give the Railway
   connections a few seconds to drain, otherwise Prisma fails with P2024.
+- Live flow script kept out of the repo; recreate it from the TASK_QUEUE
+  completion notes if needed.
 ```
 
 ---
@@ -417,23 +443,26 @@ rate limiting         (DISCOVERED-001)
 
 # 11. HL7 INTEGRATION PROGRESS
 
-**Status:** NOT STARTED
+**Status:** DONE for the pilot scope (BACKEND-010, 011, 012)
 
 Pilot target:
 
 ```text
-MockHl7Adapter
+MockHl7Adapter   [x] registered as the default HL7 adapter
 ```
 
 Required flows:
 
 ```text
-First HL7
-Second HL7
-Accession Number matching
-Duplicate protection
-Patient mismatch protection
+First HL7                    [x] patient + study created, WAITING_ACCEPTANCE
+Second HL7                   [x] IMAGES_PENDING, SLA clock starts
+Accession Number matching    [x] hospitalId + accessionNumber only
+Duplicate protection         [x] no second study, state never rewound
+Patient mismatch protection  [x] 409 HL7_PATIENT_MISMATCH, study untouched
 ```
+
+Verified against the live Railway database through the real dev-tools
+endpoints, with the audit chain and status history recorded.
 
 Real hospital HL7:
 
@@ -663,8 +692,8 @@ Measured on 2026-08-15 (backend):
 ```text
 Lint: PASS
 Typecheck: PASS
-Backend Unit Tests: 89 PASS / 0 FAIL
-Backend E2E Tests: 57 PASS / 0 FAIL
+Backend Unit Tests: 257 PASS / 0 FAIL
+Backend E2E Tests: 101 PASS / 0 FAIL
 Backend Build: PASS
 Integration Tests: NOT_RUN (no test database yet)
 Frontend Tests: NOT_RUN
@@ -1100,7 +1129,7 @@ Current:
 [x] Database initialized
 [x] Redis initialized
 [x] Auth completed
-[ ] HL7 mock completed
+[x] HL7 mock completed
 [ ] Doctor workflow completed
 [ ] Reporter workflow completed
 [ ] Approval workflow completed
@@ -1118,14 +1147,14 @@ Current:
 ```text
 [x] Auth
 [x] Roles
-[ ] Hospital Scope
+[x] Hospital Scope
 
-[ ] Patient
-[ ] Study
+[x] Patient
+[x] Study
 
-[ ] First HL7
-[ ] Second HL7
-[ ] Images Available
+[x] First HL7
+[x] Second HL7
+[x] Images Available
 
 [ ] Doctor Queue
 [ ] Doctor Lock
