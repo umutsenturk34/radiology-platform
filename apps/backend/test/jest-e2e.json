@@ -4,6 +4,7 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "roots": ["<rootDir>/test"],
   "testRegex": ".*\\.e2e-spec\\.ts$",
+  "setupFiles": ["<rootDir>/test/jest-e2e.setup.ts"],
   "transform": {
     "^.+\\.ts$": ["ts-jest", { "tsconfig": "<rootDir>/tsconfig.spec.json" }]
   },

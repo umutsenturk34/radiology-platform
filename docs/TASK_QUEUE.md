@@ -492,7 +492,7 @@ Gates: lint PASS, typecheck PASS, unit 15 PASS, e2e 8 PASS, build PASS
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-005
 
 ### Endpointler
@@ -516,6 +516,52 @@ Gates: lint PASS, typecheck PASS, unit 15 PASS, e2e 8 PASS, build PASS
 - yanlış parola reddediliyor
 - refresh çalışıyor
 - logout refresh session revoke ediyor
+
+### Completed
+
+- `src/auth/`: AuthModule, AuthController, AuthService, TokenService,
+  JwtAuthGuard, `@Public()` / `@CurrentUser()` decorator'ları
+- `JwtAuthGuard` **global** guard olarak kayıtlı → default deny
+  (AUTH_ROLES_PERMISSIONS section 85). Yalnızca `@Public()` işaretli route'lar
+  (health, login, refresh, logout) token'sız erişilebilir
+- Access token 15 dk (JWT_SECRET), refresh token 7 gün (JWT_REFRESH_SECRET);
+  iki secret farklı olmak zorunda, production'da ikisi de zorunlu
+- Refresh token yalnızca HttpOnly cookie ile taşınıyor (`Path=/api/v1/auth`,
+  production'da `Secure` + `SameSite=None`); response body'sinde asla dönmüyor
+- `UserSession.refreshTokenHash` = SHA-256(token); plain token DB'ye yazılmıyor
+- Refresh **rotation**: eski session revoke edilir, yeni session açılır.
+  Revoke edilmiş bir token tekrar sunulursa hırsızlık kabul edilip kullanıcının
+  **tüm** session'ları revoke edilir
+- Her guarded istekte session + user birlikte okunur → logout ve hesap
+  pasifleştirme anında etkili (access token'ın süresi dolması beklenmez)
+- Kullanıcı sayımı (enumeration) engellendi: bilinmeyen e-posta için de argon2
+  doğrulaması yapılır ve yanlış parola ile birebir aynı yanıt döner
+- Hesap durumu parola doğrulandıktan sonra kontrol edilir →
+  `USER_INACTIVE` / `USER_SUSPENDED` (403), yanlış kimlik `INVALID_CREDENTIALS` (401)
+
+Testler: 79 unit (`configuration`, `seed`, `token.service`, `auth.service`),
+36 e2e (`health`, `auth`).
+
+Canlı doğrulama (Railway PostgreSQL + gerçek seed hesapları):
+
+```text
+doctor/reporter/operation/manager login -> 200, doğru rol
+yanlış parola  -> 401 INVALID_CREDENTIALS
+bilinmeyen e-posta -> 401, gövdesi birebir aynı
+GET /auth/me -> 200, hospitals: [TEST_HOSPITAL], passwordHash yok
+GET /auth/me token'sız -> 401 UNAUTHORIZED
+refresh (cookie) -> 200, cookie rotate ediliyor
+rotate edilmiş cookie replay -> 401
+logout -> 204, sonrasında refresh 401 ve eski access token 401
+malformed body -> 422 VALIDATION_ERROR + details.fields
+sunucu logunda parola/token/hash eşleşmesi: 0
+```
+
+Frontend etkisi (FRONTEND-002/003 için):
+`refresh` çağrısından sonra dönen **yeni** access token kullanılmalıdır; rotation
+eski session'ı kapattığı için önceki access token anında geçersiz olur.
+
+Gates: lint PASS, typecheck PASS, unit 79 PASS, e2e 36 PASS, build PASS
 
 ---
 
@@ -2928,3 +2974,69 @@ Select next task
 Kullanıcı bilgisayar başında değilken de mümkün olduğunca bu döngü sürdürülmelidir.
 
 Ajan yalnızca gerçekten dış bilgi, spesifikasyon belirsizliği veya çözülemeyen teknik engel olduğunda durmalıdır.
+
+---
+
+# 53. DISCOVERED TASKS
+
+---
+
+## DISCOVERED-001 — Auth Endpoint Rate Limiting
+
+**Owner:** BACKEND  
+**Priority:** P1  
+**Status:** TODO  
+**Depends On:** BACKEND-006  
+**Keşfedildi:** BACKEND-006 sırasında
+
+### Issue
+
+`docs/BACKEND.md` section 119 auth endpointleri için rate limit istiyor ve
+`API_CONTRACT.md` section 113 `429 RATE_LIMITED` yanıtını tanımlıyor, ancak
+BACKEND-006 kapsamında uygulanmadı. `POST /auth/login` şu anda sınırsız
+denemeye açık.
+
+### Yapılacaklar
+
+- `@nestjs/throttler` ile login/refresh için makul bir pilot limiti
+- Limit aşımında `429` + `RATE_LIMITED` (mevcut error envelope ile)
+- Sağlık probe'unun (`/health`) limite takılmaması
+
+---
+
+## DISCOVERED-002 — Prisma Connection Pool Configuration
+
+**Owner:** BACKEND / DEVOPS  
+**Priority:** P1  
+**Status:** TODO  
+**Depends On:** BACKEND-002  
+**Keşfedildi:** BACKEND-006 canlı doğrulaması sırasında
+
+### Issue
+
+Railway'e developer makinesinden TCP proxy üzerinden bağlanırken tek bir
+PostgreSQL bağlantısının kurulması ~3-7 sn sürebiliyor. Prisma'nın varsayılan
+havuzu (`cpu * 2 + 1` = 21) varsayılan 10 sn `pool_timeout` içinde
+dolduramadığı için uygulama açılışta `P2024` ile düşüyor.
+
+### Evidence
+
+```text
+PrismaClientInitializationError: Timed out fetching a new connection from the
+connection pool (Current connection pool timeout: 10, connection limit: 21)
+
+Kontrol: SELECT count(*) FROM pg_stat_activity -> 9,
+         max_connections -> 500  (sunucu tarafı tükenmiş DEĞİL)
+```
+
+### Workaround (uygulandı)
+
+Yerel `.env` içindeki `DATABASE_URL`'e
+`connection_limit=5&pool_timeout=30` eklendi; `.env.example` bunu dokümante
+ediyor.
+
+### Yapılacaklar
+
+- Havuz ayarlarını env üzerinden yapılandırılabilir hale getirmek
+- DEVOPS-001/002'de Railway içi (internal hostname) deploy için uygun
+  değerleri belirlemek — proxy gecikmesi orada olmayacağı için farklı olabilir

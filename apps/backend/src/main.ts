@@ -1,15 +1,32 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { API_PREFIX, configureApp } from './app.setup';
-import { loadConfiguration } from './config/configuration';
+import type { AppConfig } from './config/configuration';
 import { AppLogger } from './common/logging/app-logger.service';
 
 async function bootstrap(): Promise<void> {
-  const config = loadConfiguration();
-  const logger = new AppLogger(config.logLevel);
+  // Logs are buffered until the configured logger is available, so nothing is
+  // lost and the log level is never guessed twice.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
-  const app = await NestFactory.create(AppModule, { logger });
+  // The configuration is read from the Nest ConfigModule rather than loaded a
+  // second time here: a second load would parse a different environment (the
+  // .env file is only applied by ConfigModule) and would generate a second set
+  // of development JWT secrets.
+  const config = app.get(ConfigService).get<AppConfig>('app');
+  if (!config) {
+    throw new Error('Application configuration is missing; refusing to start.');
+  }
+
+  const logger = app.get(AppLogger);
+  app.useLogger(logger);
+
+  for (const warning of config.warnings) {
+    logger.warn({ message: warning }, 'Bootstrap');
+  }
+
   configureApp(app, config, logger);
 
   await app.listen(config.port, '0.0.0.0');

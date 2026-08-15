@@ -7,7 +7,18 @@
  * Rule: this file must never log or echo secret values.
  */
 
+import { randomBytes } from 'node:crypto';
+
 export type AppEnvironment = 'local' | 'development' | 'pilot' | 'production' | 'test';
+
+export interface JwtConfig {
+  /** HMAC secret for short-lived access tokens. */
+  accessSecret: string;
+  /** Separate HMAC secret for refresh tokens, so one leak is not both. */
+  refreshSecret: string;
+  accessTtlSeconds: number;
+  refreshTtlSeconds: number;
+}
 
 export interface AppConfig {
   nodeEnv: string;
@@ -19,7 +30,20 @@ export interface AppConfig {
   isProduction: boolean;
   devToolsEnabled: boolean;
   allowMockIntegrations: boolean;
+  jwt: JwtConfig;
+  /**
+   * Non-fatal configuration notes surfaced at startup. Never contains a secret
+   * value — only the fact that a fallback was applied.
+   */
+  warnings: string[];
 }
+
+/** Access tokens must stay short-lived (docs/BACKEND.md section 23). */
+const DEFAULT_ACCESS_TTL = '15m';
+const DEFAULT_REFRESH_TTL = '7d';
+
+/** Below this a shared HMAC secret is not worth calling a secret. */
+const MIN_SECRET_LENGTH = 32;
 
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -48,6 +72,61 @@ function parseOriginList(raw: string | undefined): string[] {
 }
 
 /**
+ * Parses a duration such as `15m`, `7d`, `900s` or a bare number of seconds.
+ *
+ * Returns `null` for anything unparseable so the caller can report which
+ * variable is wrong instead of silently applying a default TTL.
+ */
+export function parseDurationSeconds(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+
+  const match = /^(\d+)\s*(s|m|h|d)?$/i.exec(raw.trim());
+  if (!match) return null;
+
+  const amount = Number.parseInt(match[1], 10);
+  if (!Number.isInteger(amount) || amount <= 0) return null;
+
+  const unitSeconds: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+  return amount * unitSeconds[(match[2] ?? 's').toLowerCase()];
+}
+
+/**
+ * Resolves one JWT secret.
+ *
+ * Production must supply a real secret — the process refuses to start without
+ * one. Outside production a random per-process secret is generated so a
+ * developer machine or a test run never depends on a secret committed to the
+ * repository; the cost is that tokens do not survive a restart.
+ */
+function resolveJwtSecret(
+  raw: string | undefined,
+  variableName: string,
+  isProduction: boolean,
+  problems: string[],
+  warnings: string[],
+): string {
+  const secret = raw?.trim();
+
+  if (secret) {
+    if (secret.length < MIN_SECRET_LENGTH) {
+      problems.push(`${variableName} must be at least ${MIN_SECRET_LENGTH} characters long`);
+    }
+    return secret;
+  }
+
+  if (isProduction) {
+    problems.push(`${variableName} is required in production`);
+    return '';
+  }
+
+  warnings.push(
+    `${variableName} is not set; using a random per-process secret. ` +
+      'Tokens issued before a restart will stop working.',
+  );
+  return randomBytes(48).toString('base64url');
+}
+
+/**
  * Builds the validated application configuration.
  *
  * Fails fast on startup rather than surfacing misconfiguration later as a
@@ -55,6 +134,7 @@ function parseOriginList(raw: string | undefined): string[] {
  */
 export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const problems: string[] = [];
+  const warnings: string[] = [];
 
   const nodeEnv = env.NODE_ENV ?? 'development';
   const appEnv = (env.APP_ENV ?? 'local') as AppEnvironment;
@@ -78,6 +158,23 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
   const devToolsEnabled = parseBoolean(env.DEV_TOOLS_ENABLED, false);
   const allowMockIntegrations = parseBoolean(env.ALLOW_MOCK_INTEGRATIONS, !isProduction);
 
+  const accessSecret = resolveJwtSecret(env.JWT_SECRET, 'JWT_SECRET', isProduction, problems, warnings); // prettier-ignore
+  const refreshSecret = resolveJwtSecret(env.JWT_REFRESH_SECRET, 'JWT_REFRESH_SECRET', isProduction, problems, warnings); // prettier-ignore
+
+  if (accessSecret && accessSecret === refreshSecret) {
+    problems.push('JWT_SECRET and JWT_REFRESH_SECRET must be different values');
+  }
+
+  const accessTtlSeconds = parseDurationSeconds(env.JWT_ACCESS_TTL ?? DEFAULT_ACCESS_TTL);
+  if (accessTtlSeconds === null) {
+    problems.push(`JWT_ACCESS_TTL must be a duration such as 15m, received "${env.JWT_ACCESS_TTL}"`);
+  }
+
+  const refreshTtlSeconds = parseDurationSeconds(env.JWT_REFRESH_TTL ?? DEFAULT_REFRESH_TTL);
+  if (refreshTtlSeconds === null) {
+    problems.push(`JWT_REFRESH_TTL must be a duration such as 7d, received "${env.JWT_REFRESH_TTL}"`);
+  }
+
   if (problems.length > 0) {
     throw new EnvironmentError(problems);
   }
@@ -91,6 +188,13 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     isProduction,
     devToolsEnabled,
     allowMockIntegrations,
+    jwt: {
+      accessSecret,
+      refreshSecret,
+      accessTtlSeconds: accessTtlSeconds as number,
+      refreshTtlSeconds: refreshTtlSeconds as number,
+    },
+    warnings,
   };
 }
 

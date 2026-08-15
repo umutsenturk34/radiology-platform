@@ -1,4 +1,5 @@
 import { ValidationPipe, type INestApplication, type ValidationError } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 import type { AppConfig } from './config/configuration';
 import { AppLogger } from './common/logging/app-logger.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -23,6 +24,10 @@ export function configureApp(
   // Runs before routing so every log line and error carries the correlation id.
   const requestId = new RequestIdMiddleware();
   app.use(requestId.use.bind(requestId));
+
+  // The refresh token is carried in an HttpOnly cookie, so the auth routes need
+  // it parsed (docs/API_CONTRACT.md section 8).
+  app.use(cookieParser());
 
   app.setGlobalPrefix(API_PREFIX);
 

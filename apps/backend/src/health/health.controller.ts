@@ -1,6 +1,7 @@
 import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { HealthService } from './health.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 /**
  * `GET /api/v1/health`
@@ -8,6 +9,7 @@ import { HealthService } from './health.service';
  * Unauthenticated on purpose: platform health checks (Railway) must be able to
  * probe it. It exposes no patient, user or hospital data.
  */
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}

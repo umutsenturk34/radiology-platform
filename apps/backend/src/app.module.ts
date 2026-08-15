@@ -5,6 +5,7 @@ import { CommonModule } from './common/common.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
+import { AuthModule } from './auth/auth.module';
 
 /**
  * Root module of the modular monolith.
@@ -24,6 +25,7 @@ import { RedisModule } from './redis/redis.module';
     HealthModule,
     PrismaModule,
     RedisModule,
+    AuthModule,
   ],
 })
 export class AppModule {}

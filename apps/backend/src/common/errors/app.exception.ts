@@ -30,6 +30,32 @@ export class UnauthorizedAppException extends AppException {
   }
 }
 
+/**
+ * 401 — email/password did not match.
+ *
+ * Deliberately identical whether or not the account exists, so login cannot be
+ * used to enumerate users (docs/API_CONTRACT.md section 18).
+ */
+export class InvalidCredentialsException extends AppException {
+  constructor(message = 'Email or password is incorrect.') {
+    super(ApiErrorCode.INVALID_CREDENTIALS, message, HttpStatus.UNAUTHORIZED);
+  }
+}
+
+/** 403 — credentials were correct but the account is disabled. */
+export class UserInactiveException extends AppException {
+  constructor(message = 'This account is not active.') {
+    super(ApiErrorCode.USER_INACTIVE, message, HttpStatus.FORBIDDEN);
+  }
+}
+
+/** 403 — credentials were correct but the account is suspended. */
+export class UserSuspendedException extends AppException {
+  constructor(message = 'This account is suspended.') {
+    super(ApiErrorCode.USER_SUSPENDED, message, HttpStatus.FORBIDDEN);
+  }
+}
+
 /** 403 — authenticated but not allowed to perform the action. */
 export class ForbiddenAppException extends AppException {
   constructor(
