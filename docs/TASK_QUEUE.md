@@ -569,7 +569,7 @@ Gates: lint PASS, typecheck PASS, unit 79 PASS, e2e 36 PASS, build PASS
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-006
 
 ### Acceptance
@@ -577,6 +577,39 @@ Gates: lint PASS, typecheck PASS, unit 79 PASS, e2e 36 PASS, build PASS
 - Reporter finalize endpointine erişemiyor
 - Doctor manager endpointine erişemiyor
 - unauthorized request 403
+
+### Completed
+
+- `@Roles(...)` decorator'ı + `RolesGuard`; `JwtAuthGuard`'dan **sonra** global
+  guard olarak kayıtlı (sıra önemli: principal önce request'e ekleniyor)
+- `@Roles` taşımayan route'lar rol kısıtı olmadan geçer — bu route'lar kendi
+  daha ince kontrollerine (hospital scope, assignment, lock) bırakılır
+- Rol yalnızca doğrulanmış token + veritabanından okunur; request body'sindeki
+  `role` alanı hiçbir zaman dikkate alınmaz
+- MANAGER, DOCTOR gerektiren bir action'a otomatik erişemez
+  (CLAUDE.md section 22)
+- Hem `@Public()` hem `@Roles()` taşıyan bir route fail-closed reddedilir
+- Kimlik doğrulama rol kontrolünden önce gelir → token yoksa 403 değil **401**
+
+### Testler
+
+- `src/auth/guards/roles.guard.spec.ts`: 11 birim testi
+- `test/roles.e2e-spec.ts`: 21 e2e testi. Rotalar yalnızca teste özel
+  `test/fixtures/roles-probe.controller.ts` üzerinden geliyor — finalize /
+  manager users / HBYS retry rol gereksinimlerini birebir yansıtıyor, böylece
+  API_CONTRACT'ta tanımlı olmayan production endpoint'i uydurulmuyor
+
+Doğrulanan matris (AUTH_ROLES_PERMISSIONS section 57):
+
+```text
+finalize (DOCTOR)                -> DOCTOR 201 | REPORTER/OPERATION/MANAGER 403
+manager users (MANAGER)          -> MANAGER 200 | DOCTOR/REPORTER/OPERATION 403
+hbys retry (OPERATION|MANAGER)   -> OPERATION/MANAGER 201 | DOCTOR/REPORTER 403
+rol kısıtsız route               -> 4 rol de 200, token'sız 401
+token yok / bozuk token          -> 401 UNAUTHORIZED
+```
+
+Gates: lint PASS, typecheck PASS, unit 89 PASS, e2e 57 PASS, build PASS
 
 ---
 
