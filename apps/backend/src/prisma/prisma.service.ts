@@ -1,6 +1,8 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 import { AppLogger } from '../common/logging/app-logger.service';
+import type { DatabaseConfig } from '../config/configuration';
 
 /**
  * PostgreSQL access. PostgreSQL is the persistent source of truth for all
@@ -14,7 +16,9 @@ import { AppLogger } from '../common/logging/app-logger.service';
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger: AppLogger;
 
-  constructor(logger: AppLogger) {
+  constructor(logger: AppLogger, config?: ConfigService) {
+    const database = config?.get<DatabaseConfig>('app.database');
+
     super({
       // Query text is safe to log at debug level; parameters are not, because
       // they contain patient and report data (CLAUDE.md section 42).
@@ -22,6 +26,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         { emit: 'event', level: 'warn' },
         { emit: 'event', level: 'error' },
       ],
+      // Prisma's 5s default is too short when the database is reached through
+      // a TCP proxy: a workflow transition plus its history and audit rows is
+      // several round trips, and exceeding the limit aborts the whole
+      // transaction (docs/WORKFLOW_STATE_MACHINE.md section 43).
+      transactionOptions: {
+        timeout: database?.transactionTimeoutMs ?? 15_000,
+        maxWait: database?.transactionMaxWaitMs ?? 10_000,
+      },
     });
     this.logger = logger.child(PrismaService.name);
   }

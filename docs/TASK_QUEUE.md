@@ -909,7 +909,7 @@ Testler: `src/integrations/hl7/hl7-normalization.spec.ts` — 32 birim testi.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-010
 
 ### Endpoint
@@ -933,13 +933,45 @@ Mock
 - audit var
 - duplicate Study yok
 
+### Completed
+
+- `MockHl7Adapter` (`src/integrations/hl7/mock-hl7.adapter.ts`) — saf çeviri,
+  state okumaz/yazmaz. Hastane kategori kodlarını (`E`, `EMERG`, `ICU`, `I`,
+  `O`) internal enum'a çevirir
+- `Hl7Service.processFirstEvent` — patient find/create, Study create,
+  `INITIAL -> WAITING_ACCEPTANCE` geçişi **WorkflowService üzerinden**
+- DevTools endpoint'i Study status'una hiç dokunmaz; akış
+  `DevTools -> MockHl7Adapter -> normalized event -> Hl7Service -> WorkflowService`
+  (INTEGRATIONS section 18, WORKFLOW_STATE_MACHINE section 47)
+- Idempotency: `hospitalId + accessionNumber` unique kısıtı üzerinden.
+  Tekrar gelen mesaj ikinci patient/study yaratmaz ve **state'i resetlemez**;
+  eşzamanlı iki mesajda unique violation yakalanıp duplicate olarak işlenir
+- Mevcut hastanın demografisi tekrar gelen order ile sessizce ezilmez
+- `arrivalAt` / `slaDeadlineAt` ilk HL7'de **bilerek** set edilmez: SLA saati
+  ikinci HL7'de başlar (WORKFLOW_STATE_MACHINE section 60)
+- Audit zinciri: `HL7_FIRST_RECEIVED`, `PATIENT_CREATED`, `STUDY_CREATED`,
+  `STUDY_STATUS_CHANGED`
+
+Canlı doğrulama (Railway, gerçek endpoint):
+
+```text
+POST /dev-tools/hl7/first (category "E")  -> 201, status WAITING_ACCEPTANCE
+tekrar aynı mesaj                          -> 201, duplicate: true, aynı studyId
+veritabanında accession için study sayısı  -> 1
+audit: HL7_FIRST_RECEIVED, STUDY_CREATED, STUDY_STATUS_CHANGED
+status history: INITIAL -> WAITING_ACCEPTANCE
+```
+
+Testler: 21 adapter birim testi, 12 Hl7Service birim testi (gerçek
+WorkflowService + AuditService ile).
+
 ---
 
 ## BACKEND-012 — Mock Second HL7
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-011
 
 ### Endpoint
@@ -958,13 +990,39 @@ hospitalId + accessionNumber
 - `IMAGES_PENDING`
 - patient ID mismatch güvenli hata üretiyor
 
+### Completed
+
+- `Hl7Service.processSecondEvent` — eşleştirme yalnızca
+  `hospitalId + accessionNumber` üzerinden (INTEGRATIONS section 10)
+- `externalPatientId` eşleştirme için **kullanılmaz**; yalnızca çelişki
+  kontrolü için karşılaştırılır. Çelişki varsa
+  `409 HL7_PATIENT_MISMATCH` + audit, Study'ye dokunulmaz
+  (INTEGRATIONS section 11, CLAUDE.md section 16)
+- Eşleşen Study yoksa `409 HL7_ACCESSION_CONFLICT`
+- `WAITING_ACCEPTANCE -> IMAGES_PENDING` geçişi WorkflowService üzerinden
+- SLA saati burada başlar: `arrivalAt = acceptedAt`,
+  `slaDeadlineAt = arrivalAt + aktif policy süresi` (snapshot, DATA_MODEL 66).
+  `YOGUN_BAKIM` için aktif policy yok → deadline **null** bırakılır ve loglanır
+  (BLOCKED_SPEC — süre uydurulmaz)
+- Tekrar gelen ikinci HL7 Study'yi geri sarmaz; duplicate olarak audit edilir
+  ve `arrivalAt` değişmez (geç gelen duplicate SLA'yı uzatamaz)
+
+Canlı doğrulama:
+
+```text
+mismatched externalPatientId -> 409 HL7_PATIENT_MISMATCH, status değişmedi
+doğru mesaj                  -> 200, IMAGES_PENDING
+                                arrivalAt 22:22:13Z, slaDeadlineAt 00:22:13Z (ACIL=120dk)
+tekrar aynı mesaj            -> 200, duplicate: true, arrivalAt aynı
+```
+
 ---
 
 ## BACKEND-013 — Images Available Simulation
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-012
 
 ### Endpoint
@@ -982,6 +1040,26 @@ IMAGES_PENDING
 
 - status history oluşuyor
 - audit oluşuyor
+
+### Completed
+
+- `StudyImagesService.markImagesAvailable` — production'da PACS'in ürettiği
+  event (INTEGRATIONS section 25); dev-tools endpoint'i aynı servise iner,
+  yani simüle edilen yol ile gerçek yol tek implementasyondur
+- `IMAGES_PENDING -> UNREAD` geçişi WorkflowService üzerinden; uygun olmayan
+  state'ten çağrılırsa `409 INVALID_STATE_TRANSITION`
+- `imagesAvailableAt` ve opsiyonel `studyInstanceUid` aynı transaction'da yazılır
+- Hospital scope kontrol edilir (Manager tüm hastaneleri görse de kural
+  bu tesadüfe bırakılmadı)
+- Audit: `IMAGES_AVAILABLE` + `STUDY_STATUS_CHANGED`; status history yazılır
+
+Canlı doğrulama:
+
+```text
+POST /dev-tools/studies/:id/images-available -> 200, UNREAD
+tekrar çağrı                                  -> 409 INVALID_STATE_TRANSITION
+doktor GET /studies?pool=UNREAD               -> Study listede görünüyor
+```
 
 ---
 
@@ -1019,7 +1097,7 @@ IMAGES_PENDING
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004, BACKEND-013
 
 ### Amaç
@@ -1047,6 +1125,26 @@ HBYS_PENDING → HBYS_FAILED
 - invalid transition reddediliyor
 - controller direct status update yapmıyor
 - status history yazılıyor
+
+### Completed
+
+- `src/workflow/`: `WorkflowService` + `workflow.transitions.ts`
+- Geçiş tablosu WORKFLOW_STATE_MACHINE section 38'den birebir alındı; tabloda
+  olmayan her geçiş reddedilir (fail-closed)
+- Tek transaction içinde: Study update + `StudyStatusHistory` + `AuditService`
+  kaydı (section 43). Geçersiz geçişte hiçbir şey yazılmaz
+- Controller'lar status yazmaz; genel amaçlı "set status" API'si **yoktur**
+  (modül bilerek controller içermiyor)
+- `studyData` ile çağıranın ek kolonları aynı update'te yazılır, ancak
+  `status` her zaman doğrulanmış hedef ile ezilir — çağıran tabloyu atlayamaz
+- Workflow timestamp'leri (`readingStartedAt`, `finalizedAt`, ...) geçişte
+  damgalanır. `imagesAvailableAt` bilerek tabloda değil: UNREAD'e
+  IMAGE_MISSING ve WONT_REPORT üzerinden de gelinir, damgalamak olmayan bir
+  görüntü gelişini kaydederdi
+
+Testler: 34 birim testi — tablo (22 izinli/reddedilen geçiş), tam happy path
+(INITIAL → HBYS_SENT), HBYS fail + manual retry yolu, geçersiz geçişte
+yazma yapılmaması, `studyData` ile status ezilememesi.
 
 ---
 
@@ -2226,7 +2324,7 @@ No financial formula.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-006
 
 ### Kural
@@ -2240,6 +2338,18 @@ MANAGER
 ### Acceptance
 
 production flag false ise route disabled.
+
+### Completed
+
+- `DevToolsGuard` + `@Roles(UserRole.MANAGER)` — **iki bağımsız koşul**
+- Flag her istekte okunur; kapalıysa `403 DEV_TOOLS_DISABLED` ve uyarı logu.
+  Route'u hiç kaydetmemek yerine açık reddetme seçildi: production'da yanlış
+  yapılandırma "route yok" gibi görünmek yerine audit edilebilir bir hata verir
+- `DEV_TOOLS_ENABLED=true` tek başına yetmez: DOCTOR/REPORTER/OPERATION
+  yine `403 FORBIDDEN` alır
+
+Testler: `test/dev-tools.e2e-spec.ts` — flag kapalı/açık iki ayrı uygulama
+başlatılarak her iki koşul tek tek doğrulandı.
 
 ---
 
@@ -3189,3 +3299,62 @@ ediyor.
 - Havuz ayarlarını env üzerinden yapılandırılabilir hale getirmek
 - DEVOPS-001/002'de Railway içi (internal hostname) deploy için uygun
   değerleri belirlemek — proxy gecikmesi orada olmayacağı için farklı olabilir
+
+### Ek bulgu (BACKEND-011 canlı testinde)
+
+Aynı gecikme Prisma'nın **interactive transaction** varsayılanını da aşıyordu:
+bir workflow geçişi Study + status history + audit yazıyor ve 5 sn'lik
+varsayılan limit dolduğu için transaction `P2028` ile iptal ediliyordu
+(veri bütünlüğü korundu — transaction geri alındı, kısmi state oluşmadı).
+
+Uygulanan çözüm: `DATABASE_TRANSACTION_TIMEOUT_MS` (varsayılan 15000) ve
+`DATABASE_TRANSACTION_MAX_WAIT_MS` (varsayılan 10000) env değişkenleri
+eklendi; `PrismaService` bunları client'a `transactionOptions` olarak veriyor.
+Railway içi deploy'da bu değerler düşürülebilir.
+
+---
+
+## DISCOVERED-003 — Clinical Data Model
+
+**Owner:** BACKEND  
+**Priority:** P1  
+**Status:** TODO  
+**Depends On:** BACKEND-004  
+**Keşfedildi:** BACKEND-011 sırasında
+
+### Issue
+
+`INTEGRATIONS.md` section 15 ve `API_CONTRACT.md` section 28 normalize edilmiş
+klinik alanları (`preDiagnosis`, `requestReason`, `patientComplaint`,
+`previousStudyInfo`, `requestingPhysician`, `department`, `additionalData`)
+tanımlıyor, ancak `DATA_MODEL.md` phase-1 şemasında bunları tutacak bir tablo
+yok. HL7 adapter'ı bu alanları normalize ediyor fakat kalıcı bir yeri yok.
+
+### Geçici çözüm (uygulandı)
+
+Normalize edilmiş blok `HL7_FIRST_RECEIVED` / `HL7_SECOND_RECEIVED` audit
+kaydının `metadata` alanında saklanıyor — veri kaybolmuyor, ancak
+`GET /studies/:id` üzerinden `clinicalData` olarak dönmüyor.
+
+### Yapılacaklar
+
+- `ClinicalData` modeli (Study ile 1-1) veya Study üzerinde JSON alan kararı
+- HL7 servisinin bu modele yazması
+- `StudyDetail` sözleşmesine `clinicalData` eklenmesi (shared + API_CONTRACT)
+
+---
+
+## DISCOVERED-004 — Study Detail Contract Completion
+
+**Owner:** BACKEND  
+**Priority:** P1  
+**Status:** TODO  
+**Depends On:** BACKEND-015, BACKEND-020, BACKEND-039, BACKEND-041  
+**Keşfedildi:** BACKEND-009 sırasında
+
+### Issue
+
+`API_CONTRACT.md` section 26/28'deki `lock`, `pacs`, türetilmiş `sla` state'i
+ve `flags` alanları henüz modellenmediği için `StudyListItem` / `StudyDetail`
+sözleşmesinde yok. Bunlar ilgili görevler tamamlandıkça eklenmelidir; frontend
+sözleşmesi o noktada güncellenecektir.

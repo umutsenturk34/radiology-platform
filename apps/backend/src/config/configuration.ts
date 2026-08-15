@@ -20,6 +20,17 @@ export interface JwtConfig {
   refreshTtlSeconds: number;
 }
 
+export interface DatabaseConfig {
+  /**
+   * How long an interactive transaction may run. Prisma's 5s default is not
+   * enough when the database is reached through a TCP proxy, where a single
+   * round trip can cost a second.
+   */
+  transactionTimeoutMs: number;
+  /** How long to wait for a connection before the transaction starts. */
+  transactionMaxWaitMs: number;
+}
+
 export interface AppConfig {
   nodeEnv: string;
   appEnv: AppEnvironment;
@@ -30,6 +41,7 @@ export interface AppConfig {
   isProduction: boolean;
   devToolsEnabled: boolean;
   allowMockIntegrations: boolean;
+  database: DatabaseConfig;
   jwt: JwtConfig;
   /**
    * Non-fatal configuration notes surfaced at startup. Never contains a secret
@@ -44,6 +56,9 @@ const DEFAULT_REFRESH_TTL = '7d';
 
 /** Below this a shared HMAC secret is not worth calling a secret. */
 const MIN_SECRET_LENGTH = 32;
+
+const DEFAULT_TRANSACTION_TIMEOUT_MS = 15_000;
+const DEFAULT_TRANSACTION_MAX_WAIT_MS = 10_000;
 
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -61,6 +76,23 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
   if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
   if (['false', '0', 'no', 'off'].includes(normalized)) return false;
   return fallback;
+}
+
+function parsePositiveInt(
+  raw: string | undefined,
+  fallback: number,
+  variableName: string,
+  problems: string[],
+): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    problems.push(`${variableName} must be a positive integer, received "${raw}"`);
+    return fallback;
+  }
+
+  return parsed;
 }
 
 function parseOriginList(raw: string | undefined): string[] {
@@ -158,6 +190,19 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
   const devToolsEnabled = parseBoolean(env.DEV_TOOLS_ENABLED, false);
   const allowMockIntegrations = parseBoolean(env.ALLOW_MOCK_INTEGRATIONS, !isProduction);
 
+  const transactionTimeoutMs = parsePositiveInt(
+    env.DATABASE_TRANSACTION_TIMEOUT_MS,
+    DEFAULT_TRANSACTION_TIMEOUT_MS,
+    'DATABASE_TRANSACTION_TIMEOUT_MS',
+    problems,
+  );
+  const transactionMaxWaitMs = parsePositiveInt(
+    env.DATABASE_TRANSACTION_MAX_WAIT_MS,
+    DEFAULT_TRANSACTION_MAX_WAIT_MS,
+    'DATABASE_TRANSACTION_MAX_WAIT_MS',
+    problems,
+  );
+
   const accessSecret = resolveJwtSecret(env.JWT_SECRET, 'JWT_SECRET', isProduction, problems, warnings); // prettier-ignore
   const refreshSecret = resolveJwtSecret(env.JWT_REFRESH_SECRET, 'JWT_REFRESH_SECRET', isProduction, problems, warnings); // prettier-ignore
 
@@ -188,6 +233,7 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     isProduction,
     devToolsEnabled,
     allowMockIntegrations,
+    database: { transactionTimeoutMs, transactionMaxWaitMs },
     jwt: {
       accessSecret,
       refreshSecret,

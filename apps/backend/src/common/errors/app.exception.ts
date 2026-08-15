@@ -83,6 +83,21 @@ export class NotFoundAppException extends AppException {
   }
 }
 
+/**
+ * 409 — the study cannot make this transition from its current state
+ * (docs/API_CONTRACT.md section 108).
+ */
+export class InvalidStateTransitionException extends AppException {
+  constructor(currentStatus: string, requestedStatus: string) {
+    super(
+      ApiErrorCode.INVALID_STATE_TRANSITION,
+      'Study cannot perform this action in its current state.',
+      HttpStatus.CONFLICT,
+      { currentStatus, requestedStatus },
+    );
+  }
+}
+
 /** 422 — request body failed validation. */
 export class ValidationAppException extends AppException {
   constructor(fields: Record<string, string[]>, message = 'Request validation failed.') {

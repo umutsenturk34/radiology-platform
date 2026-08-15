@@ -63,6 +63,36 @@ describe('loadConfiguration', () => {
   });
 });
 
+describe('loadConfiguration — database', () => {
+  it('applies transaction limits that survive proxy latency', () => {
+    const config = loadConfiguration({ ...BASE_ENV });
+
+    expect(config.database).toEqual({
+      transactionTimeoutMs: 15000,
+      transactionMaxWaitMs: 10000,
+    });
+  });
+
+  it('accepts an override', () => {
+    const config = loadConfiguration({
+      ...BASE_ENV,
+      DATABASE_TRANSACTION_TIMEOUT_MS: '30000',
+      DATABASE_TRANSACTION_MAX_WAIT_MS: '5000',
+    });
+
+    expect(config.database).toEqual({
+      transactionTimeoutMs: 30000,
+      transactionMaxWaitMs: 5000,
+    });
+  });
+
+  it.each(['0', '-1', 'soon'])('rejects %s rather than falling back silently', (raw) => {
+    expect(() =>
+      loadConfiguration({ ...BASE_ENV, DATABASE_TRANSACTION_TIMEOUT_MS: raw }),
+    ).toThrow(/DATABASE_TRANSACTION_TIMEOUT_MS must be a positive integer/);
+  });
+});
+
 describe('parseDurationSeconds', () => {
   it.each([
     ['900', 900],
