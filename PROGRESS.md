@@ -10,7 +10,7 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — HL7 → images-available chain live against Railway  
+**Overall Status:** IN DEVELOPMENT — intake chain + doctor locking live against Railway  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
 **Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
@@ -138,25 +138,26 @@ Doctor lock concurrency test
 ## Current Backend Status
 
 ```text
-INTAKE CHAIN LIVE — a study now travels
-First HL7 -> Second HL7 -> Images Available -> UNREAD
-against the real Railway database, with hospital scope, audit and
-status history. Doctor/Reporter workflow not started.
+INTAKE + DOCTOR LOCK LIVE — a study travels
+First HL7 -> Second HL7 -> Images Available -> UNREAD -> READING
+against the real Railway database and Redis, with hospital scope, study
+locking, audit and status history. Dictation and the reporter workflow
+have not started.
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-015 (Redis Study Lock Service) — next to claim
+BACKEND-021 (Dictation Model) — next to claim
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-015 Redis Study Lock Service
--> BACKEND-016 Start Reading
--> BACKEND-017 Lock heartbeat / release / force-release
--> BACKEND-018 Doctor lock concurrency test
+BACKEND-021 Dictation model
+-> BACKEND-022 Object storage abstraction
+-> BACKEND-023 Dictation API
+-> BACKEND-024 Complete reading
 ```
 
 ## Recently Completed Backend Tasks
@@ -179,6 +180,10 @@ BACKEND-012 Mock second HL7                    DONE  (9e18658)
 BACKEND-013 Images available simulation        DONE  (9e18658)
 BACKEND-014 Workflow service                   DONE  (9e18658)
 BACKEND-050 DevTools security                  DONE  (9e18658)
+BACKEND-015 Redis study lock service           DONE  (aa2c896)
+BACKEND-016 Start reading                      DONE  (aa2c896)
+BACKEND-017 Lock heartbeat / release           DONE  (aa2c896)
+BACKEND-018 Doctor lock concurrency test       DONE  (aa2c896)
 ```
 
 ## Backend Blockers
@@ -247,43 +252,38 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-BACKEND-015 — Redis Study Lock Service (not claimed yet)
+BACKEND-021 — Dictation Model (not claimed yet)
 
 Current State:
-The whole study intake chain runs against the real Railway database:
-  First HL7 -> WAITING_ACCEPTANCE
-  Second HL7 -> IMAGES_PENDING (SLA clock starts, deadline frozen)
-  Images available -> UNREAD
-Every status change goes through WorkflowService, which validates against the
-transition table and writes the study row, status history and audit entry in
-one transaction. Dev tools are gated by DEV_TOOLS_ENABLED plus MANAGER.
+The intake chain and the doctor lock both run against the real Railway
+services. A study goes First HL7 -> Second HL7 -> Images Available -> UNREAD,
+a doctor takes it with start-reading, and a second doctor is refused with 423.
+Locks live in Redis with a 60s TTL and a 20s heartbeat, and every lock
+operation fails closed when Redis is unreachable.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 257 PASS, e2e tests 101 PASS
+backend unit tests 284 PASS, e2e tests 130 PASS
 
 Current Problem:
-None. Work paused at a green, committed checkpoint (9e18658).
+None. Work paused at a green, committed checkpoint (aa2c896).
 
 Next Action:
-1. Claim BACKEND-015 (Redis Study Lock Service).
-2. Implement acquire / heartbeat / release / forceRelease / getLock on Redis
-   with an atomic acquire (SET NX PX) and owner-checked release (Lua compare
-   and delete). Pilot defaults: TTL 60s, heartbeat 20s.
-   Redis unavailable must fail CLOSED — never assume "not locked"
-   (CLAUDE.md section 17).
-3. BACKEND-016 start-reading: DOCTOR + UNREAD + hospital scope + lock acquired
-   + doctor assigned + UNREAD -> READING via WorkflowService.
-4. BACKEND-017 heartbeat / release (owner only) and force-release
-   (OPERATION or MANAGER, reason mandatory, audited).
-5. BACKEND-018 concurrency test: doctor B must get 423 STUDY_LOCKED.
+1. Claim BACKEND-021 (Dictation model) and add the Dictation table plus a
+   migration.
+2. BACKEND-022 object storage abstraction: upload / getSignedPlaybackUrl,
+   with no delete on the normal clinical path. No bucket is provisioned yet
+   (DEVOPS-004), so the pilot needs a local adapter behind the interface.
+   Audio binaries never go into PostgreSQL (CLAUDE.md section 20).
+3. BACKEND-023 dictation API, then BACKEND-024 complete-reading, which must
+   require a completed dictation and release the doctor lock.
 
 Local run notes:
 - Start: cd apps/backend && node dist/main.js  (reads apps/backend/.env)
 - Before restarting, make sure the old process is gone and give the Railway
   connections a few seconds to drain, otherwise Prisma fails with P2024.
-- Live flow script kept out of the repo; recreate it from the TASK_QUEUE
-  completion notes if needed.
+- Seed accounts: doctor, doctor2, reporter, reporter2, operation, manager
+  (all @test.local, one shared dev password).
 ```
 
 ---
@@ -692,8 +692,8 @@ Measured on 2026-08-15 (backend):
 ```text
 Lint: PASS
 Typecheck: PASS
-Backend Unit Tests: 257 PASS / 0 FAIL
-Backend E2E Tests: 101 PASS / 0 FAIL
+Backend Unit Tests: 284 PASS / 0 FAIL
+Backend E2E Tests: 130 PASS / 0 FAIL
 Backend Build: PASS
 Integration Tests: NOT_RUN (no test database yet)
 Frontend Tests: NOT_RUN
@@ -776,7 +776,14 @@ HBYS FAIL
 ## Doctor Lock Conflict
 
 ```text
-NOT_RUN
+PASS — backend level (BACKEND-018)
+
+Doctor A start-reading -> 200 READING
+Doctor B start-reading -> 423 STUDY_LOCKED
+Simultaneous requests  -> exactly one 200, one 423
+Verified in the e2e suite and live against Railway + Redis with the two
+seeded doctor accounts. The frontend half (FRONTEND-006) is still open,
+so E2E-003 as a whole is not closed.
 ```
 
 ## Reporter Lock Conflict
