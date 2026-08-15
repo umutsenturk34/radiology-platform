@@ -427,7 +427,7 @@ GET /api/v1/health
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Seed
@@ -453,25 +453,34 @@ manager@test.local
 - seed birden fazla çalıştırılınca duplicate oluşturmuyor
 - tüm test hesapları login için kullanılabilir
 
-### Durum (yarım kaldı)
+### Completed
 
-Yazıldı ama **henüz çalıştırılmadı** — acceptance doğrulanmamıştır.
-
-Tamamlanan:
 - `src/prisma/seed.ts`: test hastanesi, 4 rol kullanıcısı, 3 SLA policy
 - Idempotency gerçek unique kısıtlar üzerinden upsert ile kuruldu
   (`hospitals.code`, `users.email`, `user_hospital_access (userId, hospitalId)`);
   SlaPolicy'de unique olmadığı için önce aktif kayıt aranıyor
 - Re-run mevcut kullanıcıların parolasını sıfırlamıyor (kullanımdaki
   credential'ı sessizce değiştirmemek için)
-- argon2 (`@node-rs/argon2`) ile hashleme; parola hiçbir yere loglanmıyor
+- argon2id (`@node-rs/argon2`) ile hashleme; parola hiçbir yere loglanmıyor
 - `YOGUN_BAKIM` bilerek seed edilmedi (BLOCKED_SPEC — süre tanımsız)
+- `apps/backend/package.json`: `pnpm seed` script'i + `prisma.seed` konfigürasyonu
+- `.env.example`: `SEED_DEFAULT_PASSWORD` dokümante edildi; production'da zorunlu
 
-Kalan adımlar:
-1. `apps/backend/package.json` içine seed script'i + `prisma.seed` konfigürasyonu ekle
-2. `.env.example` içine `SEED_DEFAULT_PASSWORD` satırını ekle
-3. Seed'i çalıştır, ardından **ikinci kez** çalıştırıp duplicate oluşmadığını doğrula
-4. Kayıt sayılarını gerçek sorgu ile doğrula, ardından DONE yap
+Canlı doğrulama (Railway PostgreSQL, seed **iki kez** çalıştırıldı):
+
+```text
+hospitals(TEST_HOSPITAL) = 1     (toplam hospital = 1)
+users(*@test.local)      = 4     (toplam user = 4)
+user_hospital_access     = 4
+sla_policies (active)    = 3     ACIL=120, YATAN=720, NORMAL=1440, warning=20
+```
+
+- Dört hesabın da saklanan hash'i seed parolası ile doğrulanıyor
+  (`argon2.verify -> true`), yanlış parola reddediliyor → hesaplar login'e hazır
+- `src/prisma/seed.spec.ts`: 8 birim testi (idempotency, parola sıfırlanmaması,
+  YOGUN_BAKIM'ın seed edilmemesi, production parola zorunluluğu)
+
+Gates: lint PASS, typecheck PASS, unit 15 PASS, e2e 8 PASS, build PASS
 
 ---
 

@@ -16,10 +16,14 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "seed": "prisma db seed",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand"
+  },
+  "prisma": {
+    "seed": "ts-node -P tsconfig.json src/prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
