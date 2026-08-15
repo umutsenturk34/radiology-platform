@@ -10,12 +10,12 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — persistence layer live on Railway  
+**Overall Status:** IN DEVELOPMENT — auth layer live against Railway  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
 **Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
 **Deployment:** Backend not deployed yet; databases provisioned  
-**Last Updated:** 2026-08-14 (Claude / backend)
+**Last Updated:** 2026-08-15 (Claude / backend)
 
 Ana hedef:
 
@@ -107,31 +107,28 @@ Agent operating files:
 Current phase:
 
 ```text
-PHASE 0
-Documentation and autonomous-agent preparation
+PHASE 1
+Backend foundation — monorepo, persistence and auth are done;
+frontend not started
 ```
 
 Next phase:
 
 ```text
-PHASE 1
-Monorepo + Backend + Frontend foundation
+PHASE 2
+Study domain — hospital scope, study queries, mock HL7, workflow engine
 ```
 
 Primary next milestone:
 
 ```text
-pnpm workspace
+Hospital scope guard
 +
-NestJS backend
+Study query service
 +
-Next.js frontend
+Mock First / Second HL7
 +
-PostgreSQL
-+
-Redis
-+
-Auth
+Images available
 ```
 
 ---
@@ -141,22 +138,23 @@ Auth
 ## Current Backend Status
 
 ```text
-PERSISTENCE LAYER LIVE — auth not started
+AUTH LIVE — login/refresh/logout/me and role authorization working
+against the real Railway database with the seeded pilot accounts
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-005 (Seed) — IN_PROGRESS, written but not yet executed
+BACKEND-008 (Hospital Access Guard) — next to claim
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-005 finish (run + verify idempotency)
--> BACKEND-006 Authentication
--> BACKEND-007 Role Guard
--> BACKEND-008 Hospital Access Guard
+BACKEND-008 Hospital Access Guard
+-> BACKEND-009 Study Query Service
+-> BACKEND-010 HL7 Adapter Contract
+-> BACKEND-011 Mock First HL7
 ```
 
 ## Recently Completed Backend Tasks
@@ -168,6 +166,9 @@ BACKEND-001 NestJS application bootstrap       DONE
 BACKEND-002 PostgreSQL + Prisma setup          DONE
 BACKEND-003 Redis setup                        DONE
 BACKEND-004 Core database models phase 1       DONE
+BACKEND-005 Seed system                        DONE  (0127958)
+BACKEND-006 Authentication                     DONE  (dfd6219)
+BACKEND-007 Role guard                         DONE  (45f0620)
 ```
 
 ## Backend Blockers
@@ -192,6 +193,17 @@ The local backend talks to the Railway PRODUCTION environment databases.
 There is no separate test database yet, which is why the e2e suite stubs
 PrismaService/RedisService instead of connecting. Integration tests that need
 real persistence will require a dedicated test database first.
+
+Connecting to Railway PostgreSQL through the TCP proxy can take 3-7s per
+connection. Prisma's default pool (cpus*2+1 = 21) cannot be filled inside the
+default 10s pool timeout, and startup then fails with P2024. DATABASE_URL now
+carries connection_limit=5&pool_timeout=30 locally. Tracked as DISCOVERED-002.
+
+Restarting the backend needs the previous process to be gone AND its
+connections drained; starting a second instance immediately can exhaust the
+pool and make both fail.
+
+Auth endpoints have no rate limiting yet (DISCOVERED-001).
 ```
 
 ## Backend Infrastructure Notes
@@ -214,30 +226,38 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-BACKEND-005 — Seed System
+BACKEND-008 — Hospital Access Guard (not claimed yet)
 
 Current State:
-src/prisma/seed.ts is written, lints, typechecks and builds, but has NEVER
-been executed, so its acceptance criteria are unverified.
+BACKEND-005/006/007 are DONE and committed. The seed ran twice against the
+real Railway database (1 hospital, 4 users, 4 access rows, 3 SLA policies) and
+all four @test.local accounts log in for real. Auth is enforced by two global
+guards: JwtAuthGuard (deny by default, @Public() opts out) and RolesGuard.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 7 PASS, e2e tests 8 PASS
+backend unit tests 89 PASS, e2e tests 57 PASS
 
 Current Problem:
-None. Work was paused deliberately at a green checkpoint.
+None. Work paused at a green, committed checkpoint.
 
 Next Action:
-1. Add to apps/backend/package.json:
-     "scripts": { "seed": "ts-node src/prisma/seed.ts" }
-     "prisma":  { "seed":  "ts-node src/prisma/seed.ts" }
-2. Add SEED_DEFAULT_PASSWORD to apps/backend/.env.example
-   (dev fallback used by the script is PilotTest!2026).
-3. Run the seed, then run it a SECOND time and confirm no duplicates:
-     expect exactly 1 hospital, 4 users, 4 access rows, 3 SLA policies.
-4. Mark BACKEND-005 DONE, then start BACKEND-006 (Authentication):
-   login / refresh / logout / me, argon2 hashing, JWT access token,
-   HttpOnly refresh cookie, UserSession row with refreshTokenHash.
+1. Claim BACKEND-008 (Hospital Access Guard) in docs/TASK_QUEUE.md.
+2. Implement a hospital scope check on top of AuthenticatedUser.hospitalIds,
+   which JwtAuthGuard already resolves on every request. Expected error:
+   403 HOSPITAL_ACCESS_DENIED.
+3. Note: BACKEND-008's acceptance criteria are written against Study
+   endpoints (GET /studies/:id and the study list), which only land in
+   BACKEND-009. Either verify the guard with test-only probe routes, as
+   BACKEND-007 did, and close the criteria under BACKEND-009, or keep
+   BACKEND-008 IN_PROGRESS until the real study endpoints exist.
+4. Then BACKEND-009 (Study Query Service) with hospital scope applied to
+   both the list and the detail endpoint.
+
+Local run notes:
+- Start: cd apps/backend && node dist/main.js  (reads apps/backend/.env)
+- Before restarting, make sure the old process is gone and give the Railway
+  connections a few seconds to drain, otherwise Prisma fails with P2024.
 ```
 
 ---
@@ -305,99 +325,93 @@ Claim highest-priority available FRONTEND task whose dependencies are satisfied.
 ## Status
 
 ```text
-NOT STARTED
+DONE — SHARED-001 and SHARED-002 complete
 ```
-
-## Next Task
 
 ```text
-SHARED-001 — Root Monorepo Setup
+root package.json          [x]
+pnpm-workspace.yaml        [x]
+TypeScript base config     [x]  strict
+lint/format configuration  [x]  flat ESLint 9 + Prettier
+workspace scripts          [x]  lint / typecheck / build / test
+@radiology/shared          [x]  8 enums + ApiError / PaginatedResponse
 ```
 
-Expected output:
-
-```text
-root package.json
-pnpm-workspace.yaml
-TypeScript base config
-lint/format configuration
-workspace scripts
-```
-
-Then:
-
-```text
-SHARED-002 — Shared Package Setup
-```
+Shared package is consumed by the backend. The frontend does not exist yet, so
+its import is unverified (Codex closes that under FRONTEND-002).
 
 ---
 
 # 8. DATABASE PROGRESS
 
-**Status:** NOT STARTED
-
-Expected stack:
+**Status:** LIVE — schema, migration and seed applied
 
 ```text
-PostgreSQL
-Prisma
+PostgreSQL (Railway strong-courtesy / production)
+Prisma 6.19.3
 ```
-
-First database milestone:
 
 ```text
-Prisma configured
-↓
-Core models
-↓
-Migration
-↓
-Seed
+Prisma configured   [x]
+Core models         [x]  10 models
+Migration           [x]  20260814144451_init
+Seed                [x]  idempotent, verified by a second run
 ```
-
-No migration has been recorded yet.
 
 ---
 
 # 9. REDIS PROGRESS
 
-**Status:** NOT STARTED
+**Status:** CONNECTED — not yet used by a feature
 
 Expected responsibilities:
 
 ```text
-Study Locks
-BullMQ
+Study Locks           (BACKEND-015)
+BullMQ                (BACKEND-033)
 Ephemeral Coordination
 ```
 
-No Redis connection/test has been recorded yet.
+Redis 8.2.8 reachable via TCP proxy; health endpoint reports it up.
+No lock or queue implementation exists yet.
 
 ---
 
 # 10. AUTH PROGRESS
 
-**Status:** NOT STARTED
+**Status:** DONE for the pilot scope (BACKEND-006, BACKEND-007)
 
 Required pilot roles:
 
 ```text
-DOCTOR
-REPORTER
-OPERATION
-MANAGER
+DOCTOR      [x] logs in against the real database
+REPORTER    [x]
+OPERATION   [x]
+MANAGER     [x]
 ```
 
 Required endpoints:
 
 ```text
-login
-refresh
-logout
-me
+login   [x] POST /api/v1/auth/login
+refresh [x] POST /api/v1/auth/refresh   (rotating session)
+logout  [x] POST /api/v1/auth/logout    (204, revokes session)
+me      [x] GET  /api/v1/auth/me
 ```
 
-No auth test result recorded yet.
+Enforcement:
+
+```text
+JwtAuthGuard  global, deny by default, @Public() opts out
+RolesGuard    global, @Roles(...) restricts a route to specific roles
+```
+
+Not done yet:
+
+```text
+hospital scope guard  (BACKEND-008)
+rate limiting         (DISCOVERED-001)
+```
 
 ---
 
@@ -644,20 +658,20 @@ No development quality gate has been run yet.
 
 Current status:
 
-Measured on 2026-08-14 (backend):
+Measured on 2026-08-15 (backend):
 
 ```text
 Lint: PASS
 Typecheck: PASS
-Backend Unit Tests: 7 PASS / 0 FAIL
-Backend E2E Tests: 8 PASS / 0 FAIL
+Backend Unit Tests: 89 PASS / 0 FAIL
+Backend E2E Tests: 57 PASS / 0 FAIL
 Backend Build: PASS
 Integration Tests: NOT_RUN (no test database yet)
 Frontend Tests: NOT_RUN
 Frontend Build: NOT_RUN
 ```
 
-Live infrastructure verification (real Railway services):
+Live infrastructure verification (real Railway services, 2026-08-14):
 
 ```text
 Prisma migration 20260814144451_init: APPLIED
@@ -667,6 +681,24 @@ GET /api/v1/health -> 200, database up (255ms), redis up (248ms)
 Redis PING -> PONG on Redis 8.2.8
 Unreachable database -> structured error + exit code 1, no credential logged
 Unreachable Redis -> fails closed, process exits
+```
+
+Live seed + auth verification (real Railway database, 2026-08-15):
+
+```text
+Seed run twice -> 1 hospital, 4 users, 4 access rows, 3 active SLA policies
+All four @test.local hashes verify with argon2id; wrong password rejected
+
+doctor/reporter/operation/manager login -> 200 with the correct role
+wrong password            -> 401 INVALID_CREDENTIALS
+unknown email             -> 401, body byte-identical to wrong password
+GET /auth/me              -> 200, hospitals [TEST_HOSPITAL], no passwordHash
+GET /auth/me without token-> 401 UNAUTHORIZED
+POST /auth/refresh        -> 200, refresh cookie rotated
+replayed rotated cookie   -> 401 (all sessions revoked, reuse detected)
+POST /auth/logout         -> 204; refresh AND the old access token then 401
+malformed login body      -> 422 VALIDATION_ERROR with details.fields
+server log scanned for password/token/hash patterns -> 0 matches
 ```
 
 Agents must replace these values only with actual command results.
@@ -979,11 +1011,13 @@ Preferred:
 agent/backend
 ```
 
-Actual current branch:
+Actual current branch (verified 2026-08-15):
 
 ```text
-UNKNOWN — agent must inspect with git branch --show-current
+agent/backend
 ```
+
+Backend work runs in the `radiology-backend` git worktree.
 
 ## Frontend
 
@@ -1026,10 +1060,15 @@ Agents must inspect actual environment before assuming separate worktrees exist.
 
 # 27. RECENT COMMITS
 
-At initialization:
+Backend milestones (real hashes):
 
 ```text
-Not recorded here yet.
+45f0620 feat(auth): add role guard and role decorator
+dfd6219 feat(auth): implement jwt authentication and refresh sessions
+0127958 feat(seed): run and verify idempotent pilot seed
+55ed15c feat(infra): connect prisma and redis to live railway services
+7dda6d6 feat(persistence): prisma schema, database and redis service layer
+bd5718f feat(foundation): pnpm monorepo, shared contracts and NestJS bootstrap
 ```
 
 Agents may record important recent milestone commits using real hashes only.
@@ -1060,7 +1099,7 @@ Current:
 [ ] Frontend initialized
 [x] Database initialized
 [x] Redis initialized
-[ ] Auth completed
+[x] Auth completed
 [ ] HL7 mock completed
 [ ] Doctor workflow completed
 [ ] Reporter workflow completed
@@ -1077,8 +1116,8 @@ Current:
 # 29. CURRENT PILOT READINESS CHECKLIST
 
 ```text
-[ ] Auth
-[ ] Roles
+[x] Auth
+[x] Roles
 [ ] Hospital Scope
 
 [ ] Patient
