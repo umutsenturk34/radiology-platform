@@ -859,7 +859,7 @@ Gates: lint PASS, typecheck PASS, unit 140 PASS, e2e 91 PASS, build PASS
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Yapılacaklar
@@ -872,6 +872,36 @@ Gates: lint PASS, typecheck PASS, unit 140 PASS, e2e 91 PASS, build PASS
 ### Acceptance
 
 - core service ham mock payload bilmiyor
+
+### Completed
+
+- `src/integrations/contracts/hl7.contract.ts`: `Hl7Adapter` arayüzü,
+  `NormalizedHl7FirstEvent`, `NormalizedHl7SecondEvent`,
+  `NormalizedClinicalData`, `HL7_ADAPTER` injection token'ı
+- `src/integrations/contracts/integration.errors.ts`: INTEGRATIONS section 17'deki
+  HL7 hata kodları + exception sınıfları. Bu kodlar **bilerek**
+  `packages/shared`'daki `ApiErrorCode` enum'una eklenmedi; yalnızca pilot
+  dev-tools ingestion endpoint'lerinden dönüyorlar ve API_CONTRACT'ta tanımlı
+  değiller (AGENTS.md section 7 — sözleşme değişikliği doküman güncellemesi ister)
+- `src/integrations/hl7/hl7-normalization.ts`: tüm adapter'ların paylaştığı
+  doğrulama/normalizasyon
+- `src/integrations/integration-registry.service.ts`:
+  `getHl7Adapter(hospitalId)` (INTEGRATIONS section 4) — hastaneye özgü seçim
+  controller/workflow içine dağılmıyor
+
+Kritik güvenlik kararları:
+
+```text
+Adapter saf çeviridir: state okumaz, yazmaz.
+Geçersiz timestamp "şimdi" ile doldurulmaz  -> SLA deadline'ı sessizce kaymaz.
+Eşlenmemiş kategori kodu tahmin edilmez     -> yanlış SLA'ya bağlanmaz.
+Bilinmeyen hastane alanları düşürülmez      -> clinicalData.additionalData'ya taşınır.
+Eksik alanlar tek tek değil topluca raporlanır.
+```
+
+Adapter implementasyonu, registry wiring'i ve modül BACKEND-011 ile geliyor.
+
+Testler: `src/integrations/hl7/hl7-normalization.spec.ts` — 32 birim testi.
 
 ---
 
