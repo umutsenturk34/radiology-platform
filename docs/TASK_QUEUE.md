@@ -446,7 +446,13 @@ doctor@test.local
 reporter@test.local
 operation@test.local
 manager@test.local
+
+doctor2@test.local      (BACKEND-018 / E2E-003 icin sonradan eklendi)
+reporter2@test.local    (BACKEND-027 / E2E-004 icin sonradan eklendi)
 ```
+
+Lock cakismasi senaryolari ayni rolden ikinci bir hesap olmadan
+calistirilamadigi icin iki hesap sonradan eklendi.
 
 ### Acceptance
 
@@ -1156,7 +1162,7 @@ yazma yapılmaması, `studyData` ile status ezilememesi.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-003, BACKEND-014
 
 ### Fonksiyonlar
@@ -1180,13 +1186,35 @@ heartbeat = 20s
 - ikinci kullanıcı lock alamıyor
 - stale lock TTL ile gidiyor
 
+### Completed
+
+- `src/locks/`: `StudyLockService` — `acquire`, `heartbeat`, `release`,
+  `forceRelease`, `getLock`, `describe`
+- Acquire tek bir atomik `SET NX PX`; ayrı kontrol+yazma yok, dolayısıyla
+  TOCTOU yarışı yok (WORKFLOW_STATE_MACHINE section 31)
+- Release ve heartbeat **Lua compare-and-act** ile: aradaki sürede lock süresi
+  dolup başkasına geçtiyse onun kilidi silinmez/uzatılmaz
+- TTL 60 sn, heartbeat 20 sn (config: `LOCK_TTL_SECONDS`,
+  `LOCK_HEARTBEAT_SECONDS`). Heartbeat >= TTL yapılandırması başlangıçta
+  reddedilir — aksi halde aktif kullanıcı kilidini kaybederdi
+- Redis erişilemezse **her** işlem 503 ile fail-closed; "kilit yok" varsayımı
+  hiçbir yolda yapılmaz (CLAUDE.md section 17). Bozuk lock değeri de
+  "unlocked" olarak okunmaz
+- `acquire` sonucu `alreadyOwned` taşır: çağıran hata durumunda yalnızca
+  kendi aldığı kilidi bırakır, sahibin geçerli kilidini düşürmez
+
+Testler: 24 birim testi — ikinci doktor 423, ikinci raportör 423, stale lock
+TTL ile düşüyor, heartbeat TTL'i uzatıyor, süresi dolmuş kilit üzerinde
+heartbeat reddediliyor, geç gelen release başkasının kilidini silmiyor,
+Redis çöktüğünde 5 işlemin hepsi 503.
+
 ---
 
 ## BACKEND-016 — Start Reading
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-015
 
 ### Endpoint
@@ -1203,13 +1231,27 @@ POST `/studies/:id/start-reading`
 - READING
 - audit
 
+### Completed
+
+- `POST /studies/:id/start-reading` — `StudyActionsService.startReading`
+- Kontrol sırası API_CONTRACT section 30'daki gibi: authorization → hospital →
+  lock → state. **Sıra önemli:** doktor A okumaya başladıktan sonra status
+  artık UNREAD değildir; state önce kontrol edilseydi doktor B'ye 423 yerine
+  409 dönerdi (BACKEND-018 kabul kriteri 423 istiyor)
+- Lock alındıktan sonra transaction: audit + `StudyAssignment` +
+  `UNREAD -> READING` (WorkflowService üzerinden, `assignedDoctorId` ile)
+- Transaction başarısız olursa **bu çağrının aldığı** kilit geri bırakılır;
+  Redis transaction dışındadır ve telafi gerektirir (WORKFLOW section 43)
+- Response API_CONTRACT section 31 ile uyumlu: `lock.heartbeatIntervalSeconds`
+  dahil
+
 ---
 
 ## BACKEND-017 — Lock Heartbeat / Release
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-015
 
 ### Endpointler
@@ -1224,13 +1266,27 @@ POST `/studies/:id/start-reading`
 - force release reason zorunlu
 - force release audit var
 
+### Completed
+
+- `POST /studies/:id/lock/heartbeat` — yalnızca lock sahibi, aksi 423
+  `LOCK_NOT_OWNED`
+- `POST /studies/:id/lock/release` — yalnızca sahibi. Study status'u
+  **değiştirmez** (API_CONTRACT section 34): çalışma ekranından çıkmak klinik
+  ilerlemeyi geri almaz
+- `POST /studies/:id/lock/force-release` — yalnızca OPERATION / MANAGER,
+  `reason` zorunlu, önceki sahip ve rolü ile birlikte audit edilir
+  (CLAUDE.md section 18)
+- `GET /studies/:id/lock` — sahip, rol ve kalan süre; frontend 423'ü
+  anlaşılır gösterebilsin diye (API_CONTRACT section 104)
+- Hepsinde hospital scope kontrol ediliyor
+
 ---
 
 ## BACKEND-018 — Doctor Lock Concurrency Test
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-016
 
 ### Test
@@ -1248,6 +1304,30 @@ Doctor B açmaya çalışır.
 ### Acceptance
 
 Test otomatik geçiyor.
+
+### Completed
+
+`test/study-locks.e2e-spec.ts` — iki gerçek doktor hesabıyla, gerçek HTTP
+üzerinden 29 test. Kilit her testte sıfırdan başlar (test başına ayrı uygulama).
+
+Doğrulanan zorunlu davranışlar:
+
+```text
+doktor A start-reading            -> 200, READING, lock A'da
+doktor B start-reading            -> 423 STUDY_LOCKED (+ sahip bilgisi)
+eşzamanlı iki istek               -> tam olarak biri 200, diğeri 423
+reddedilen ikinci denemeden sonra -> Study hala A'da, status READING
+doktor B heartbeat/release        -> 423 LOCK_NOT_OWNED
+doktor B force-release            -> 403 FORBIDDEN
+operation force-release reason'sız-> 422 VALIDATION_ERROR
+```
+
+Canlı doğrulama (Railway PostgreSQL + Redis, seed'deki iki doktor hesabı):
+yukarıdaki zincirin tamamı gerçek servislere karşı aynı sonuçları verdi.
+
+Seed notu: bu senaryo için ikinci bir doktor hesabı gerekiyordu, bu yüzden
+seed'e `doctor2@test.local` ve (E2E-004 için) `reporter2@test.local` eklendi.
+Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok.
 
 ---
 

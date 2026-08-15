@@ -60,6 +60,23 @@ const SEED_USERS: SeedUser[] = [
     lastName: 'Yonetici',
     role: UserRole.MANAGER,
   },
+  // A second doctor and reporter exist so the mandatory lock-conflict
+  // scenarios can be run at all: E2E-003 needs a second doctor to be refused
+  // with 423, and E2E-004 the same for a second reporter (CLAUDE.md 61).
+  {
+    email: 'doctor2@test.local',
+    username: 'doctor2',
+    firstName: 'Test',
+    lastName: 'Doktor Iki',
+    role: UserRole.DOCTOR,
+  },
+  {
+    email: 'reporter2@test.local',
+    username: 'reporter2',
+    firstName: 'Test',
+    lastName: 'Raportor Iki',
+    role: UserRole.REPORTER,
+  },
 ];
 
 /** docs/DATA_MODEL.md section 64. YOGUN_BAKIM is intentionally absent. */

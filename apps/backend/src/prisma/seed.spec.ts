@@ -125,29 +125,37 @@ describe('resolveSeedPassword', () => {
 });
 
 describe('seedDatabase', () => {
-  it('creates the pilot hospital, four role users, access rows and SLA policies', async () => {
+  it('creates the pilot hospital, the role users, access rows and SLA policies', async () => {
     const { prisma, tables } = createFakePrisma();
 
     const result = await seedDatabase(prisma as never, 'hash-1');
 
     expect(tables.hospitals).toHaveLength(1);
     expect(tables.hospitals[0].code).toBe(seedConstants.TEST_HOSPITAL_CODE);
-    expect(tables.users).toHaveLength(4);
+    // Two doctors and two reporters: the lock-conflict scenarios need a second
+    // principal of the same role to be refused.
+    expect(tables.users.filter((u) => u.role === 'DOCTOR')).toHaveLength(2);
+    expect(tables.users.filter((u) => u.role === 'REPORTER')).toHaveLength(2);
+    expect(tables.users).toHaveLength(6);
     expect(tables.users.map((u) => u.role).sort()).toEqual([
+      'DOCTOR',
       'DOCTOR',
       'MANAGER',
       'OPERATION',
       'REPORTER',
+      'REPORTER',
     ]);
     expect(tables.users.map((u) => u.email).sort()).toEqual([
+      'doctor2@test.local',
       'doctor@test.local',
       'manager@test.local',
       'operation@test.local',
+      'reporter2@test.local',
       'reporter@test.local',
     ]);
-    expect(tables.access).toHaveLength(4);
+    expect(tables.access).toHaveLength(6);
     expect(tables.slaPolicies).toHaveLength(3);
-    expect(result.userIds).toHaveLength(4);
+    expect(result.userIds).toHaveLength(6);
     expect(result.slaPolicyIds).toHaveLength(3);
   });
 
@@ -158,8 +166,8 @@ describe('seedDatabase', () => {
     const second = await seedDatabase(prisma as never, 'hash-2');
 
     expect(tables.hospitals).toHaveLength(1);
-    expect(tables.users).toHaveLength(4);
-    expect(tables.access).toHaveLength(4);
+    expect(tables.users).toHaveLength(6);
+    expect(tables.access).toHaveLength(6);
     expect(tables.slaPolicies).toHaveLength(3);
     expect(second.hospitalId).toBe(first.hospitalId);
     expect(second.userIds).toEqual(first.userIds);

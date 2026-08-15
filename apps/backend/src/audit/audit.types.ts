@@ -20,6 +20,11 @@ export const AuditEventType = {
 
   // workflow
   STUDY_STATUS_CHANGED: 'STUDY_STATUS_CHANGED',
+  STUDY_READING_STARTED: 'STUDY_READING_STARTED',
+
+  // locking
+  STUDY_LOCK_RELEASED: 'STUDY_LOCK_RELEASED',
+  STUDY_LOCK_FORCE_RELEASED: 'STUDY_LOCK_FORCE_RELEASED',
 } as const;
 
 export type AuditEventType = (typeof AuditEventType)[keyof typeof AuditEventType];

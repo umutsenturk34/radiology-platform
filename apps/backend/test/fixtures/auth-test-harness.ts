@@ -181,9 +181,64 @@ export async function buildTestUsers(): Promise<StoredUser[]> {
     { id: 'u-reporter', email: 'reporter@test.local', username: 'reporter', role: 'REPORTER', status: 'ACTIVE', ...base }, // prettier-ignore
     { id: 'u-operation', email: 'operation@test.local', username: 'operation', role: 'OPERATION', status: 'ACTIVE', ...base }, // prettier-ignore
     { id: 'u-manager', email: 'manager@test.local', username: 'manager', role: 'MANAGER', status: 'ACTIVE', ...base }, // prettier-ignore
+    // Second doctor and reporter exist so concurrency can be tested with two
+    // real principals rather than by reusing one (BACKEND-018, BACKEND-027).
+    { id: 'u-doctor-b', email: 'doctor.b@test.local', username: 'doctorb', role: 'DOCTOR', status: 'ACTIVE', ...base }, // prettier-ignore
+    { id: 'u-reporter-b', email: 'reporter.b@test.local', username: 'reporterb', role: 'REPORTER', status: 'ACTIVE', ...base }, // prettier-ignore
     { id: 'u-inactive', email: 'inactive@test.local', username: 'inactive', role: 'DOCTOR', status: 'INACTIVE', ...base }, // prettier-ignore
     { id: 'u-suspended', email: 'suspended@test.local', username: 'suspended', role: 'DOCTOR', status: 'SUSPENDED', ...base }, // prettier-ignore
   ];
+}
+
+/** In-memory Redis with the commands StudyLockService uses. */
+export function createRedisClientStub() {
+  const store = new Map<string, { value: string; expiresAt: number }>();
+
+  const isLive = (key: string): boolean => {
+    const entry = store.get(key);
+    if (!entry) return false;
+    if (entry.expiresAt <= Date.now()) {
+      store.delete(key);
+      return false;
+    }
+    return true;
+  };
+
+  return {
+    store,
+    client: {
+      set: (key: string, value: string, _px: string, ttlMs: string | number, mode?: string) => {
+        const live = isLive(key);
+        if (mode === 'NX' && live) return Promise.resolve(null);
+        if (mode === 'XX' && !live) return Promise.resolve(null);
+        store.set(key, { value, expiresAt: Date.now() + Number(ttlMs) });
+        return Promise.resolve('OK');
+      },
+      get: (key: string) =>
+        Promise.resolve(isLive(key) ? (store.get(key) as { value: string }).value : null),
+      del: (key: string) => {
+        const existed = isLive(key);
+        store.delete(key);
+        return Promise.resolve(existed ? 1 : 0);
+      },
+      pttl: (key: string) =>
+        Promise.resolve(
+          isLive(key) ? (store.get(key) as { expiresAt: number }).expiresAt - Date.now() : -2,
+        ),
+      eval: (script: string, _keys: number, key: string, expected: string, ttlMs?: string) => {
+        if (!isLive(key) || (store.get(key) as { value: string }).value !== expected) {
+          return Promise.resolve(0);
+        }
+        if (script.includes('PEXPIRE')) {
+          (store.get(key) as { expiresAt: number }).expiresAt = Date.now() + Number(ttlMs);
+          return Promise.resolve(1);
+        }
+        store.delete(key);
+        return Promise.resolve(1);
+      },
+      ping: () => Promise.resolve('PONG'),
+    },
+  };
 }
 
 export function createPrismaStub(
@@ -200,13 +255,38 @@ export function createPrismaStub(
 
   const hospitals = [TEST_HOSPITAL, OTHER_HOSPITAL];
 
+  const statusHistory: Array<Record<string, unknown>> = [];
+  const auditLogs: Array<Record<string, unknown>> = [];
+  const assignments: Array<Record<string, unknown>> = [];
+
   const service = {
     ping: jest.fn(async () => true),
     $connect: jest.fn(async () => undefined),
     $disconnect: jest.fn(async () => undefined),
     onModuleInit: jest.fn(async () => undefined),
     onModuleDestroy: jest.fn(async () => undefined),
-    $transaction: (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    // Prisma accepts both an array of operations and an interactive callback;
+    // the services under test use both forms.
+    $transaction: (arg: Array<Promise<unknown>> | ((tx: unknown) => Promise<unknown>)) =>
+      typeof arg === 'function' ? arg(service) : Promise.all(arg),
+    studyStatusHistory: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        statusHistory.push(data);
+        return Promise.resolve(data);
+      },
+    },
+    auditLog: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        auditLogs.push(data);
+        return Promise.resolve(data);
+      },
+    },
+    studyAssignment: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        assignments.push(data);
+        return Promise.resolve(data);
+      },
+    },
     user: {
       findUnique: ({ where, include }: UserFindArgs) => {
         const user = users.find((candidate) =>
@@ -248,6 +328,12 @@ export function createPrismaStub(
       },
       findUnique: ({ where }: { where: { id: string } }) =>
         Promise.resolve(studies.find((study) => study.id === where.id) ?? null),
+      update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const study = studies.find((candidate) => candidate.id === where.id);
+        if (!study) throw new Error('study not found');
+        Object.assign(study, data);
+        return Promise.resolve(study);
+      },
     },
     userSession: {
       create: ({ data }: { data: StoredSession }) => {
@@ -312,14 +398,19 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions };
+  return { service, sessions, statusHistory, auditLogs, assignments };
 }
 
-export function createRedisStub() {
+export function createRedisStub(withWorkingClient = false) {
+  const redis = createRedisClientStub();
+
   return {
     ping: jest.fn(async () => true),
     getClient: jest.fn(() => {
-      throw new Error('Redis client is not available in tests.');
+      if (!withWorkingClient) {
+        throw new Error('Redis client is not available in tests.');
+      }
+      return redis.client;
     }),
     onModuleInit: jest.fn(async () => undefined),
     onModuleDestroy: jest.fn(async () => undefined),
@@ -330,6 +421,10 @@ export interface TestHarness {
   app: INestApplication;
   users: StoredUser[];
   sessions: StoredSession[];
+  studies: StoredStudy[];
+  statusHistory: Array<Record<string, unknown>>;
+  auditLogs: Array<Record<string, unknown>>;
+  assignments: Array<Record<string, unknown>>;
   /** Returns the supertest chain (not a promise) so `.expect()` stays usable. */
   login: (email: string, password?: string) => request.Test;
   /** Logs in and returns the access token. */
@@ -348,10 +443,13 @@ export async function createTestHarness(
     extraControllers?: Type<unknown>[];
     hospitalAccess?: Array<{ userId: string; hospitalId: string }>;
     studies?: StoredStudy[];
+    /** Provide a working in-memory Redis so lock endpoints can be exercised. */
+    withRedis?: boolean;
   } = {},
 ): Promise<TestHarness> {
   const users = await buildTestUsers();
-  const prismaStub = createPrismaStub(users, options.hospitalAccess, options.studies);
+  const studies = options.studies ?? [];
+  const prismaStub = createPrismaStub(users, options.hospitalAccess, studies);
 
   const moduleRef: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
@@ -360,7 +458,7 @@ export async function createTestHarness(
     .overrideProvider(PrismaService)
     .useValue(prismaStub.service)
     .overrideProvider(RedisService)
-    .useValue(createRedisStub())
+    .useValue(createRedisStub(options.withRedis ?? false))
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });
@@ -375,6 +473,10 @@ export async function createTestHarness(
     app,
     users,
     sessions: prismaStub.sessions,
+    studies,
+    statusHistory: prismaStub.statusHistory,
+    auditLogs: prismaStub.auditLogs,
+    assignments: prismaStub.assignments,
     login,
     accessTokenFor: async (email: string) => {
       const response = await login(email).expect(200);

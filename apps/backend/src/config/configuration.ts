@@ -31,6 +31,13 @@ export interface DatabaseConfig {
   transactionMaxWaitMs: number;
 }
 
+export interface LockConfig {
+  /** How long a study lock survives without a heartbeat. */
+  ttlSeconds: number;
+  /** How often the client should refresh it (advertised in responses). */
+  heartbeatSeconds: number;
+}
+
 export interface AppConfig {
   nodeEnv: string;
   appEnv: AppEnvironment;
@@ -43,6 +50,7 @@ export interface AppConfig {
   allowMockIntegrations: boolean;
   database: DatabaseConfig;
   jwt: JwtConfig;
+  lock: LockConfig;
   /**
    * Non-fatal configuration notes surfaced at startup. Never contains a secret
    * value — only the fact that a fallback was applied.
@@ -59,6 +67,10 @@ const MIN_SECRET_LENGTH = 32;
 
 const DEFAULT_TRANSACTION_TIMEOUT_MS = 15_000;
 const DEFAULT_TRANSACTION_MAX_WAIT_MS = 10_000;
+
+/** Pilot defaults from TASK_QUEUE BACKEND-015. */
+const DEFAULT_LOCK_TTL_SECONDS = 60;
+const DEFAULT_LOCK_HEARTBEAT_SECONDS = 20;
 
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -203,6 +215,25 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     problems,
   );
 
+  const lockTtlSeconds = parsePositiveInt(
+    env.LOCK_TTL_SECONDS,
+    DEFAULT_LOCK_TTL_SECONDS,
+    'LOCK_TTL_SECONDS',
+    problems,
+  );
+  const lockHeartbeatSeconds = parsePositiveInt(
+    env.LOCK_HEARTBEAT_SECONDS,
+    DEFAULT_LOCK_HEARTBEAT_SECONDS,
+    'LOCK_HEARTBEAT_SECONDS',
+    problems,
+  );
+
+  if (lockHeartbeatSeconds >= lockTtlSeconds) {
+    // A heartbeat that cannot fire before the TTL expires would let an active
+    // user lose their lock mid-reading.
+    problems.push('LOCK_HEARTBEAT_SECONDS must be smaller than LOCK_TTL_SECONDS');
+  }
+
   const accessSecret = resolveJwtSecret(env.JWT_SECRET, 'JWT_SECRET', isProduction, problems, warnings); // prettier-ignore
   const refreshSecret = resolveJwtSecret(env.JWT_REFRESH_SECRET, 'JWT_REFRESH_SECRET', isProduction, problems, warnings); // prettier-ignore
 
@@ -240,6 +271,7 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
       accessTtlSeconds: accessTtlSeconds as number,
       refreshTtlSeconds: refreshTtlSeconds as number,
     },
+    lock: { ttlSeconds: lockTtlSeconds, heartbeatSeconds: lockHeartbeatSeconds },
     warnings,
   };
 }

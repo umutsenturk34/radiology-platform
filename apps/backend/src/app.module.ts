@@ -8,6 +8,7 @@ import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
 import { AuditModule } from './audit/audit.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { LocksModule } from './locks/locks.module';
 import { StudiesModule } from './studies/studies.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { DevToolsModule } from './dev-tools/dev-tools.module';
@@ -33,6 +34,7 @@ import { DevToolsModule } from './dev-tools/dev-tools.module';
     AuditModule,
     AuthModule,
     WorkflowModule,
+    LocksModule,
     StudiesModule,
     IntegrationsModule,
     DevToolsModule,
