@@ -21,8 +21,17 @@ import { REFRESH_COOKIE_NAME } from '../../src/auth/auth.constants';
 
 export const TEST_PASSWORD = 'PilotTest!2026';
 
-export const TEST_HOSPITAL = { id: 'hospital-1', code: 'TEST_HOSPITAL', name: 'Test Hastanesi' };
-export const OTHER_HOSPITAL = { id: 'hospital-2', code: 'OTHER_HOSPITAL', name: 'Diger Hastane' };
+// Real v4 UUIDs: the API validates hospital ids as UUIDs, as production rows are.
+export const TEST_HOSPITAL = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  code: 'TEST_HOSPITAL',
+  name: 'Test Hastanesi',
+};
+export const OTHER_HOSPITAL = {
+  id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  code: 'OTHER_HOSPITAL',
+  name: 'Diger Hastane',
+};
 
 export interface StoredUser {
   id: string;
@@ -63,6 +72,105 @@ interface SessionWhere {
   revokedAt?: null;
 }
 
+/**
+ * Study row with its relations already embedded, matching what the service
+ * receives from Prisma with STUDY_INCLUDE applied.
+ */
+export interface StoredStudy {
+  id: string;
+  hospitalId: string;
+  accessionNumber: string;
+  status: string;
+  category: string;
+  modality: string | null;
+  studyDescription: string | null;
+  studyInstanceUid: string | null;
+  externalOrderId: string | null;
+  externalProtocolId: string | null;
+  arrivalAt: Date | null;
+  slaDeadlineAt: Date | null;
+  firstHl7ReceivedAt: Date | null;
+  secondHl7ReceivedAt: Date | null;
+  imagesAvailableAt: Date | null;
+  readingStartedAt: Date | null;
+  readingCompletedAt: Date | null;
+  transcriptionStartedAt: Date | null;
+  transcriptionCompletedAt: Date | null;
+  finalizedAt: Date | null;
+  assignedDoctorId: string | null;
+  assignedReporterId: string | null;
+  patient: {
+    id: string;
+    externalPatientId: string;
+    firstName: string;
+    lastName: string;
+    birthDate: Date | null;
+    gender: string | null;
+  };
+  hospital: { id: string; code: string; name: string; shortName: string | null };
+  assignedDoctor: { id: string; firstName: string; lastName: string } | null;
+  assignedReporter: { id: string; firstName: string; lastName: string } | null;
+}
+
+type WhereValue = unknown;
+
+/** Minimal Prisma `where` evaluator covering the operators the service emits. */
+function matchesWhere(row: Record<string, unknown>, where: Record<string, WhereValue>): boolean {
+  return Object.entries(where).every(([key, condition]) => {
+    if (key === 'OR') {
+      const branches = condition as Array<Record<string, WhereValue>>;
+      return branches.some((branch) => matchesWhere(row, branch));
+    }
+
+    const value = row[key];
+
+    if (condition !== null && typeof condition === 'object') {
+      const operators = condition as Record<string, unknown>;
+
+      if ('in' in operators) {
+        return (operators.in as unknown[]).includes(value);
+      }
+      if ('contains' in operators) {
+        const needle = String(operators.contains).toLowerCase();
+        return typeof value === 'string' && value.toLowerCase().includes(needle);
+      }
+      // Nested relation filter, e.g. { patient: { lastName: { contains } } }.
+      return (
+        value !== null &&
+        typeof value === 'object' &&
+        matchesWhere(value as Record<string, unknown>, operators as Record<string, WhereValue>)
+      );
+    }
+
+    return value === condition;
+  });
+}
+
+function compare(a: unknown, b: unknown): number {
+  if (a === b) return 0;
+  if (a === null || a === undefined) return -1;
+  if (b === null || b === undefined) return 1;
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  return String(a) < String(b) ? -1 : 1;
+}
+
+function sortRows(
+  rows: StoredStudy[],
+  orderBy: Array<Record<string, 'asc' | 'desc'>> = [],
+): StoredStudy[] {
+  return [...rows].sort((left, right) => {
+    for (const clause of orderBy) {
+      const [field, direction] = Object.entries(clause)[0];
+      const result = compare(
+        (left as unknown as Record<string, unknown>)[field],
+        (right as unknown as Record<string, unknown>)[field],
+      );
+      if (result !== 0) return direction === 'desc' ? -result : result;
+    }
+    return 0;
+  });
+}
+
 /** The four pilot roles plus two disabled accounts, all sharing one password. */
 export async function buildTestUsers(): Promise<StoredUser[]> {
   const passwordHash = await argonHash(TEST_PASSWORD);
@@ -81,6 +189,7 @@ export async function buildTestUsers(): Promise<StoredUser[]> {
 export function createPrismaStub(
   users: StoredUser[],
   hospitalAccess?: Array<{ userId: string; hospitalId: string }>,
+  studies: StoredStudy[] = [],
 ) {
   const sessions: StoredSession[] = [];
   const accessRows =
@@ -113,6 +222,32 @@ export function createPrismaStub(
         Object.assign(user as StoredUser, data);
         return Promise.resolve(user);
       },
+    },
+    study: {
+      count: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          studies.filter((study) => matchesWhere(study as unknown as Record<string, unknown>, where))
+            .length,
+        ),
+      findMany: ({
+        where,
+        orderBy,
+        skip = 0,
+        take,
+      }: {
+        where: Record<string, unknown>;
+        orderBy?: Array<Record<string, 'asc' | 'desc'>>;
+        skip?: number;
+        take?: number;
+      }) => {
+        const matched = studies.filter((study) =>
+          matchesWhere(study as unknown as Record<string, unknown>, where),
+        );
+        const sorted = sortRows(matched, orderBy);
+        return Promise.resolve(sorted.slice(skip, take === undefined ? undefined : skip + take));
+      },
+      findUnique: ({ where }: { where: { id: string } }) =>
+        Promise.resolve(studies.find((study) => study.id === where.id) ?? null),
     },
     userSession: {
       create: ({ data }: { data: StoredSession }) => {
@@ -208,12 +343,15 @@ export interface TestHarness {
  * `extraControllers` lets a suite mount probe routes that exercise a guard
  * without inventing production endpoints the API contract does not define.
  */
-export async function createTestHarness(options: {
-  extraControllers?: Type<unknown>[];
-  hospitalAccess?: Array<{ userId: string; hospitalId: string }>;
-} = {}): Promise<TestHarness> {
+export async function createTestHarness(
+  options: {
+    extraControllers?: Type<unknown>[];
+    hospitalAccess?: Array<{ userId: string; hospitalId: string }>;
+    studies?: StoredStudy[];
+  } = {},
+): Promise<TestHarness> {
   const users = await buildTestUsers();
-  const prismaStub = createPrismaStub(users, options.hospitalAccess);
+  const prismaStub = createPrismaStub(users, options.hospitalAccess, options.studies);
 
   const moduleRef: TestingModule = await Test.createTestingModule({
     imports: [AppModule],

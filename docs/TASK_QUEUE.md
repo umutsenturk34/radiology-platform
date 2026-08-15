@@ -617,7 +617,7 @@ Gates: lint PASS, typecheck PASS, unit 89 PASS, e2e 57 PASS, build PASS
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-006
 
 ### Acceptance
@@ -625,6 +625,46 @@ Gates: lint PASS, typecheck PASS, unit 89 PASS, e2e 57 PASS, build PASS
 - user yetkisiz hastane Study'sini UUID ile açamıyor
 - 403 `HOSPITAL_ACCESS_DENIED`
 - query listesinde yetkisiz Study görünmüyor
+
+### Completed
+
+BACKEND-009 ile birlikte, sıkı bağlı bir grup olarak uygulandı: kabul
+kriterleri gerçek `/studies` endpoint'lerini gerektiriyor.
+
+- `HospitalScopeService`: `isAllowed`, `assertAllowed`, `buildFilter`
+  - `MANAGER = all hospitals` (AUTH_ROLES_PERMISSIONS section 46, pilot
+    varsayılanı). Başka hiçbir rol — OPERATION dahil — otomatik olarak tüm
+    hastaneleri görmez (section 32)
+  - Hiç hastane yetkisi olmayan kullanıcı için filtre `{ in: [] }` üretilir →
+    fail-closed; sorgu asla filtresiz çalışmaz
+  - Yetkisiz `hospitalId` filtresi sessizce boş liste değil, **403** üretir
+- `HospitalAccessGuard`: hastaneyi doğrudan request'te taşıyan route'lar için
+  (`@UseGuards`, global değil). Param > query > body sırasıyla okur, böylece
+  body ile kontrol genişletilemez; hiç `hospitalId` yoksa 422 ile reddeder
+- Kaynak üzerinden gelen kapsam (Study, Report) servis katmanında
+  `HospitalScopeService` ile uygulanır
+
+### Testler
+
+- `src/auth/hospital-scope.service.spec.ts` — 14 birim testi
+- `src/auth/guards/hospital-access.guard.spec.ts` — 11 birim testi
+- `test/studies.e2e-spec.ts` — iki hastaneye yayılmış fixture'larla gerçek HTTP
+
+Doğrulanan davranış:
+
+```text
+GET /studies            doctor/reporter/operation -> yalnızca TEST_HOSPITAL (2 kayıt)
+                        manager                   -> her iki hastane (3 kayıt)
+GET /studies?hospitalId=<yetkisiz>  -> 403 HOSPITAL_ACCESS_DENIED
+GET /studies?search=<diğer hastanedeki hasta> -> boş liste (kapsam aşılmıyor)
+GET /studies/:id  yetkisiz hastane, doğru UUID -> 403 HOSPITAL_ACCESS_DENIED
+                                                  (gövdede hiç study verisi yok)
+GET /studies/:id  manager                      -> 200
+```
+
+Canlı doğrulama (Railway): yetkisiz `hospitalId` filtresi 403, manager 200.
+Veritabanında henüz Study kaydı yok (HL7 BACKEND-011'de geliyor), bu yüzden
+çok-kayıtlı izolasyon e2e fixture'ları ile doğrulandı.
 
 ---
 
@@ -744,7 +784,7 @@ Manager:
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004, BACKEND-008
 
 ### Endpointler
@@ -766,6 +806,52 @@ Manager:
 
 - hospital scope uygulanıyor
 - FIFO için `arrivalAt ASC` destekleniyor
+
+### Completed
+
+- `src/studies/`: StudiesModule, StudiesController, StudiesService, mapper, DTO
+- Varsayılan sıralama `arrivalAt ASC` (FIFO); ikincil anahtar `id ASC` ile
+  sayfalama deterministik. `sortBy` yalnızca izinli kolonları kabul eder
+- Sayfalama varsayılanları API_CONTRACT section 15'ten: page=1, pageSize=25,
+  tavan 100; `count` ile `findMany` **aynı** where'i kullanır, aksi halde
+  toplam sayı görülemeyen kayıtları da sayardı
+- `pool` presetleri backend'de gerçek statülere çevrilir (section 25).
+  `FINALIZED` = FINAL + HBYS_PENDING + HBYS_SENT + HBYS_FAILED — HBYS hatası
+  Study'yi klinik olarak yeniden okunmamış yapmaz (TEST_SCENARIOS TS-053)
+- `assignedDoctorId=me` / `assignedReporterId=me` alias'ı çağıranın id'sine
+  çözülür (section 57)
+- `search`: accessionNumber, studyDescription, hasta adı/soyadı ve
+  externalPatientId üzerinde; hospital scope'un **üstüne** eklenir, yerine değil
+- Prisma satırları hiçbir zaman doğrudan dönmez; mapper `hospitalId`,
+  `patientId`, `assignedDoctorId` gibi persistence alanlarını dışarı vermez
+- Geçersiz `studyId` 400 yerine 422 VALIDATION_ERROR üretir (section 112)
+
+### Kapsam notu (fabrikasyon yok)
+
+API_CONTRACT section 26/28 ayrıca `clinicalData`, `pacs`, `lock`, türetilmiş
+SLA state'i ve `flags` alanlarını tanımlıyor. Bunların arkasındaki modeller
+henüz yok, bu yüzden **uydurulmadı**; kendi görevleriyle gelecekler:
+
+```text
+lock            -> BACKEND-015
+pacs            -> BACKEND-019 / BACKEND-020
+sla.state       -> BACKEND-039   (şu an yalnızca saklanan deadlineAt dönüyor)
+flags           -> BACKEND-041 (information) ve revision görevleri
+clinicalData    -> ilgili model eklendiğinde
+```
+
+Paylaşılan sözleşme `packages/shared/src/api/study.ts` içine eklendi
+(`StudyListItem`, `StudyDetail`, `StudyPool`, `StudySortField`,
+`StudyListQuery`) — API_CONTRACT section 121 bunları zaten shared type olarak
+listeliyor. Frontend etkisi: yukarıdaki eksik alanlar sonradan eklenecek.
+
+### Testler
+
+- `src/studies/studies.service.spec.ts` — 25 birim testi
+- `test/studies.e2e-spec.ts` — gerçek HTTP üzerinden liste, filtre, sayfalama,
+  sıralama, arama, detay ve hastane izolasyonu
+
+Gates: lint PASS, typecheck PASS, unit 140 PASS, e2e 91 PASS, build PASS
 
 ---
 

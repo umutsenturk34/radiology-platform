@@ -6,6 +6,8 @@ import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
+import { HospitalAccessGuard } from './guards/hospital-access.guard';
+import { HospitalScopeService } from './hospital-scope.service';
 
 /**
  * Authentication and role authorization (TASK_QUEUE BACKEND-006, BACKEND-007).
@@ -22,9 +24,13 @@ import { RolesGuard } from './guards/roles.guard';
   providers: [
     AuthService,
     TokenService,
+    HospitalScopeService,
+    // Not global: it applies only to routes that name a hospital in the
+    // request. Resource-driven scoping goes through HospitalScopeService.
+    HospitalAccessGuard,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService, TokenService],
+  exports: [AuthService, TokenService, HospitalScopeService, HospitalAccessGuard],
 })
 export class AuthModule {}
