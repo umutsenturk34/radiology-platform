@@ -10,7 +10,7 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — intake through reporter submit live against Railway  
+**Overall Status:** IN DEVELOPMENT — full backend clinical chain live against Railway  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
 **Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
@@ -138,30 +138,33 @@ Doctor lock concurrency test
 ## Current Backend Status
 
 ```text
-CLINICAL CHAIN LIVE UP TO APPROVAL — a study travels
+FULL CLINICAL CHAIN LIVE — a study travels
 First HL7 -> Second HL7 -> Images Available -> UNREAD -> READING
 -> dictation recorded and uploaded -> WAITING_TRANSCRIPTION
 -> TRANSCRIBING -> report submitted -> WAITING_APPROVAL
-against the real Railway database, Redis and object storage.
-Doctor approval, finalization and HBYS have not started.
+-> doctor final approval -> FINAL -> HBYS_PENDING -> HBYS_SENT
+against the real Railway database, Redis, object storage and BullMQ.
+The HBYS failure path (FAIL -> HBYS_FAILED -> manual retry -> HBYS_SENT)
+is verified too. Remaining P0 backend work is the test tasks; PACS, SLA,
+information notes, realtime and the manager APIs are P1.
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-030 (Start Approval) — next to claim
+BACKEND-055 (Workflow Unit Tests) — next to claim
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-030 Start approval
--> BACKEND-032 Finalize report
--> BACKEND-033 BullMQ foundation
--> BACKEND-034 HBYS data models
--> BACKEND-035/036 HBYS adapter + mock
--> BACKEND-037 HBYS delivery worker
--> BACKEND-038 Manual HBYS retry
+BACKEND-055 Workflow unit tests      (P0, largely covered already)
+-> BACKEND-056 Permission tests      (P0)
+-> BACKEND-057 HL7 integration tests (P0)
+-> BACKEND-058 HBYS integration tests(P0)
+-> BACKEND-039 SLA engine            (P1)
+-> BACKEND-041 Information notes     (P1)
+-> BACKEND-045 WebSocket gateway     (P1)
 ```
 
 ## Recently Completed Backend Tasks
@@ -197,6 +200,15 @@ BACKEND-026 Start transcription                DONE  (5a8e5ee)
 BACKEND-027 Reporter concurrency test          DONE  (5a8e5ee)
 BACKEND-028 Report draft API                   DONE  (5a8e5ee)
 BACKEND-029 Submit report                      DONE  (5a8e5ee)
+BACKEND-030 Start approval                     DONE  (35a0b01)
+BACKEND-031 Return to reporter                 DONE  (35a0b01)
+BACKEND-032 Finalize report                    DONE  (35a0b01)
+BACKEND-034 HBYS data models                   DONE  (35a0b01)
+BACKEND-033 BullMQ foundation                  DONE  (b694dcf)
+BACKEND-035 HBYS adapter contract              DONE  (b694dcf)
+BACKEND-036 Mock HBYS adapter                  DONE  (b694dcf)
+BACKEND-037 HBYS delivery worker               DONE  (b694dcf)
+BACKEND-038 Manual HBYS retry                  DONE  (b694dcf)
 ```
 
 ## Backend Blockers
@@ -265,45 +277,47 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-BACKEND-030 — Start Approval (not claimed yet)
+BACKEND-055 — Workflow Unit Tests (not claimed yet)
 
 Current State:
-The clinical chain runs end to end up to the doctor's approval queue against
-the real Railway services:
+The complete pilot clinical chain runs against the real Railway services:
   First HL7 -> Second HL7 -> Images Available -> UNREAD
   -> READING (doctor lock) -> dictation recorded + uploaded
   -> WAITING_TRANSCRIPTION -> TRANSCRIBING (reporter lock)
   -> report submitted -> WAITING_APPROVAL
-Both lock-conflict guarantees hold: a second doctor and a second reporter are
-refused with 423.
+  -> doctor final approval -> FINAL -> HBYS_PENDING -> HBYS_SENT
+The failure path is verified too: FAIL and TIMEOUT both end in HBYS_FAILED,
+and an Operation manual retry takes it to HBYS_SENT with the earlier attempts
+preserved.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 300 PASS, e2e tests 190 PASS
+backend unit tests 300 PASS, e2e tests 245 PASS
 
 Current Problem:
-None. Work paused at a green, committed checkpoint (5a8e5ee).
+None. Work paused at a green, committed checkpoint (b694dcf).
 
 Next Action:
-1. BACKEND-030 start-approval: DOCTOR + assigned doctor + WAITING_APPROVAL,
-   takes the approval lock. The status stays WAITING_APPROVAL
-   (WORKFLOW_STATE_MACHINE section 15).
-2. BACKEND-032 finalize: only the assigned doctor, creates the FINAL report
-   version, sets Study FINAL, then FINAL -> HBYS_PENDING with an HbysDelivery
-   row. Reporter and Operation must never be able to finalize.
-3. BACKEND-031 return-to-reporter (P1) is the other approval outcome; the
-   transition WAITING_APPROVAL -> WAITING_TRANSCRIPTION is already allowed by
-   the workflow table.
-4. Then the HBYS chain: BACKEND-033 (BullMQ), 034 (models), 035/036 (adapter
-   and mock), 037 (worker), 038 (manual retry).
+1. BACKEND-055/056/057/058 are the remaining P0 tasks. Much of what they ask
+   for already exists (workflow table tests, permission tests across the e2e
+   suites, HL7 duplicate/mismatch tests, HBYS success/fail/timeout/retry), so
+   the work is mostly to check each listed case against the suites and add
+   whatever is genuinely missing rather than duplicating coverage.
+2. Then the P1 block: BACKEND-039 SLA engine, BACKEND-041 information notes,
+   BACKEND-042/043/044 special workflow states, BACKEND-045 realtime,
+   BACKEND-046/047 manager APIs, BACKEND-019/020 PACS.
+3. DEVOPS-004 (a real object storage bucket) is still open; the pilot writes
+   dictation audio to a local directory that does not survive a redeploy.
 
 Local run notes:
 - Start: cd apps/backend && node dist/main.js  (reads apps/backend/.env)
 - Before restarting, make sure the old process is gone and give the Railway
   connections a few seconds to drain, otherwise Prisma fails with P2024.
+- The local .env raises DATABASE_TRANSACTION_TIMEOUT_MS to 45000: finalize is
+  a ~15 statement transaction and the proxy round trip is about a second.
+  It also shortens HBYS_RETRY_DELAYS_MS so the retry path is observable.
 - Seed accounts: doctor, doctor2, reporter, reporter2, operation, manager
   (all @test.local, one shared dev password).
-- Dictation audio is written under apps/backend/.storage (git-ignored).
 ```
 
 ---
@@ -562,7 +576,7 @@ edited in place.
 
 # 15. HBYS PROGRESS
 
-**Status:** NOT STARTED
+**Status:** DONE for the pilot scope (BACKEND-033..038)
 
 Pilot target:
 
@@ -581,12 +595,12 @@ TIMEOUT
 Required:
 
 ```text
-BullMQ
-delivery attempts
-automatic retry
-manual retry
-HBYS_SENT
-HBYS_FAILED
+BullMQ              [x] dedicated Redis connections, 30s/2m/5m schedule
+delivery attempts   [x] every attempt kept, metadata only
+automatic retry     [x] retryable failures only
+manual retry        [x] OPERATION/MANAGER, reason mandatory, history kept
+HBYS_SENT           [x]
+HBYS_FAILED         [x] never hidden
 ```
 
 Real hospital HBYS:
@@ -710,7 +724,7 @@ Measured on 2026-08-15 (backend):
 Lint: PASS
 Typecheck: PASS
 Backend Unit Tests: 300 PASS / 0 FAIL
-Backend E2E Tests: 190 PASS / 0 FAIL
+Backend E2E Tests: 245 PASS / 0 FAIL
 Backend Build: PASS
 Integration Tests: NOT_RUN (no test database yet)
 Frontend Tests: NOT_RUN
@@ -758,7 +772,15 @@ Never fabricate PASS.
 ## Happy Path
 
 ```text
-NOT_RUN
+BACKEND HALF PASS — verified live against Railway on a single study
+
+First HL7 -> Second HL7 -> Images -> Doctor reading -> Dictation
+-> Reporter transcription -> Report -> Doctor final -> HBYS_SENT
+
+Ten status transitions recorded, report versions preserved, one HBYS
+delivery with a deterministic idempotency key, full audit chain.
+
+E2E-001 as a whole stays open: it also needs the frontend (FRONTEND-021).
 ```
 
 Required:
@@ -778,16 +800,14 @@ HBYS Success
 ## HBYS Failure Path
 
 ```text
-NOT_RUN
-```
+BACKEND HALF PASS — verified live against Railway with the real worker
 
-Required:
+FAIL mode      -> 1 attempt, no retry, HBYS_FAILED
+TIMEOUT mode   -> 4 attempts (1 + 3 automatic retries), then HBYS_FAILED
+Manual retry   -> Operation only (doctor 403), study back to HBYS_PENDING
+               -> HBYS_SENT, with attempt 1 FAILED and attempt 2 SENT both kept
 
-```text
-HBYS FAIL
-→ HBYS_FAILED
-→ Manual Retry
-→ HBYS_SENT
+E2E-002 as a whole stays open: it also needs the frontend (FRONTEND-021).
 ```
 
 ## Doctor Lock Conflict
@@ -1163,8 +1183,8 @@ Current:
 [x] HL7 mock completed
 [x] Doctor workflow completed
 [x] Reporter workflow completed
-[ ] Approval workflow completed
-[ ] HBYS mock completed
+[x] Approval workflow completed
+[x] HBYS mock completed
 [ ] Operation workflow completed
 [ ] Manager basic completed
 [ ] E2E passed
@@ -1196,13 +1216,13 @@ Current:
 [x] Audio Playback
 [x] Report
 
-[ ] Doctor Approval
-[ ] Finalization
+[x] Doctor Approval
+[x] Finalization
 
-[ ] Mock HBYS
-[ ] HBYS Success
-[ ] HBYS Failure
-[ ] Manual Retry
+[x] Mock HBYS
+[x] HBYS Success
+[x] HBYS Failure
+[x] Manual Retry
 
 [ ] SLA
 [ ] Information Notes
