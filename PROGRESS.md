@@ -10,12 +10,12 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — intake chain + doctor locking live against Railway  
+**Overall Status:** IN DEVELOPMENT — intake through reporter submit live against Railway  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
 **Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
 **Deployment:** Backend not deployed yet; databases provisioned  
-**Last Updated:** 2026-08-15 (Claude / backend)
+**Last Updated:** 2026-08-16 (Claude / backend)
 
 Ana hedef:
 
@@ -138,26 +138,30 @@ Doctor lock concurrency test
 ## Current Backend Status
 
 ```text
-INTAKE + DOCTOR LOCK LIVE — a study travels
+CLINICAL CHAIN LIVE UP TO APPROVAL — a study travels
 First HL7 -> Second HL7 -> Images Available -> UNREAD -> READING
-against the real Railway database and Redis, with hospital scope, study
-locking, audit and status history. Dictation and the reporter workflow
-have not started.
+-> dictation recorded and uploaded -> WAITING_TRANSCRIPTION
+-> TRANSCRIBING -> report submitted -> WAITING_APPROVAL
+against the real Railway database, Redis and object storage.
+Doctor approval, finalization and HBYS have not started.
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-021 (Dictation Model) — next to claim
+BACKEND-030 (Start Approval) — next to claim
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-021 Dictation model
--> BACKEND-022 Object storage abstraction
--> BACKEND-023 Dictation API
--> BACKEND-024 Complete reading
+BACKEND-030 Start approval
+-> BACKEND-032 Finalize report
+-> BACKEND-033 BullMQ foundation
+-> BACKEND-034 HBYS data models
+-> BACKEND-035/036 HBYS adapter + mock
+-> BACKEND-037 HBYS delivery worker
+-> BACKEND-038 Manual HBYS retry
 ```
 
 ## Recently Completed Backend Tasks
@@ -184,6 +188,15 @@ BACKEND-015 Redis study lock service           DONE  (aa2c896)
 BACKEND-016 Start reading                      DONE  (aa2c896)
 BACKEND-017 Lock heartbeat / release           DONE  (aa2c896)
 BACKEND-018 Doctor lock concurrency test       DONE  (aa2c896)
+BACKEND-021 Dictation model                    DONE  (2126bba)
+BACKEND-022 Object storage abstraction         DONE  (2126bba)
+BACKEND-023 Dictation API                      DONE  (2126bba)
+BACKEND-024 Complete reading                   DONE  (2126bba)
+BACKEND-025 Report data models                 DONE  (5a8e5ee)
+BACKEND-026 Start transcription                DONE  (5a8e5ee)
+BACKEND-027 Reporter concurrency test          DONE  (5a8e5ee)
+BACKEND-028 Report draft API                   DONE  (5a8e5ee)
+BACKEND-029 Submit report                      DONE  (5a8e5ee)
 ```
 
 ## Backend Blockers
@@ -252,31 +265,37 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-BACKEND-021 — Dictation Model (not claimed yet)
+BACKEND-030 — Start Approval (not claimed yet)
 
 Current State:
-The intake chain and the doctor lock both run against the real Railway
-services. A study goes First HL7 -> Second HL7 -> Images Available -> UNREAD,
-a doctor takes it with start-reading, and a second doctor is refused with 423.
-Locks live in Redis with a 60s TTL and a 20s heartbeat, and every lock
-operation fails closed when Redis is unreachable.
+The clinical chain runs end to end up to the doctor's approval queue against
+the real Railway services:
+  First HL7 -> Second HL7 -> Images Available -> UNREAD
+  -> READING (doctor lock) -> dictation recorded + uploaded
+  -> WAITING_TRANSCRIPTION -> TRANSCRIBING (reporter lock)
+  -> report submitted -> WAITING_APPROVAL
+Both lock-conflict guarantees hold: a second doctor and a second reporter are
+refused with 423.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 284 PASS, e2e tests 130 PASS
+backend unit tests 300 PASS, e2e tests 190 PASS
 
 Current Problem:
-None. Work paused at a green, committed checkpoint (aa2c896).
+None. Work paused at a green, committed checkpoint (5a8e5ee).
 
 Next Action:
-1. Claim BACKEND-021 (Dictation model) and add the Dictation table plus a
-   migration.
-2. BACKEND-022 object storage abstraction: upload / getSignedPlaybackUrl,
-   with no delete on the normal clinical path. No bucket is provisioned yet
-   (DEVOPS-004), so the pilot needs a local adapter behind the interface.
-   Audio binaries never go into PostgreSQL (CLAUDE.md section 20).
-3. BACKEND-023 dictation API, then BACKEND-024 complete-reading, which must
-   require a completed dictation and release the doctor lock.
+1. BACKEND-030 start-approval: DOCTOR + assigned doctor + WAITING_APPROVAL,
+   takes the approval lock. The status stays WAITING_APPROVAL
+   (WORKFLOW_STATE_MACHINE section 15).
+2. BACKEND-032 finalize: only the assigned doctor, creates the FINAL report
+   version, sets Study FINAL, then FINAL -> HBYS_PENDING with an HbysDelivery
+   row. Reporter and Operation must never be able to finalize.
+3. BACKEND-031 return-to-reporter (P1) is the other approval outcome; the
+   transition WAITING_APPROVAL -> WAITING_TRANSCRIPTION is already allowed by
+   the workflow table.
+4. Then the HBYS chain: BACKEND-033 (BullMQ), 034 (models), 035/036 (adapter
+   and mock), 037 (worker), 038 (manual retry).
 
 Local run notes:
 - Start: cd apps/backend && node dist/main.js  (reads apps/backend/.env)
@@ -284,6 +303,7 @@ Local run notes:
   connections a few seconds to drain, otherwise Prisma fails with P2024.
 - Seed accounts: doctor, doctor2, reporter, reporter2, operation, manager
   (all @test.local, one shared dev password).
+- Dictation audio is written under apps/backend/.storage (git-ignored).
 ```
 
 ---
@@ -506,40 +526,37 @@ until credentials/specification are supplied.
 
 # 13. DICTATION PROGRESS
 
-**Status:** NOT STARTED
-
-Minimum P0:
+**Status:** DONE for the pilot scope (BACKEND-021, 022, 023, 024)
 
 ```text
-record
-upload
-persist metadata
-playback
+record            [x] POST /studies/:id/dictations  (doctor + lock owner)
+upload            [x] POST /dictations/:id/upload   (multipart)
+persist metadata  [x] storageKey / size / checksum / duration in PostgreSQL
+playback          [x] GET /dictations/:id/playback  (short-lived token URL)
 ```
 
-VAD is not required before basic workflow works.
+Audio lives in object storage, never in PostgreSQL. The pilot uses a local
+directory driver because no bucket is provisioned (DEVOPS-004); those files do
+not survive a container rebuild.
+
+VAD is not implemented and is not required for the pilot workflow.
 
 ---
 
 # 14. REPORT WORKFLOW PROGRESS
 
-**Status:** NOT STARTED
-
-Required flow:
+**Status:** IN PROGRESS — up to WAITING_APPROVAL
 
 ```text
-WAITING_TRANSCRIPTION
-↓
-TRANSCRIBING
-↓
-Report Draft
-↓
-WAITING_APPROVAL
-↓
-Doctor Final
+WAITING_TRANSCRIPTION  [x]
+TRANSCRIBING           [x] reporter lock + first draft version
+Report Draft           [x] autosave, draft-only edits
+WAITING_APPROVAL       [x] submit completes the version, releases the lock
+Doctor Final           [ ] BACKEND-030 / BACKEND-032
 ```
 
-No report tests recorded yet.
+Report versions are append-only: a completed or finalized version is never
+edited in place.
 
 ---
 
@@ -692,8 +709,8 @@ Measured on 2026-08-15 (backend):
 ```text
 Lint: PASS
 Typecheck: PASS
-Backend Unit Tests: 284 PASS / 0 FAIL
-Backend E2E Tests: 130 PASS / 0 FAIL
+Backend Unit Tests: 300 PASS / 0 FAIL
+Backend E2E Tests: 190 PASS / 0 FAIL
 Backend Build: PASS
 Integration Tests: NOT_RUN (no test database yet)
 Frontend Tests: NOT_RUN
@@ -789,7 +806,14 @@ so E2E-003 as a whole is not closed.
 ## Reporter Lock Conflict
 
 ```text
-NOT_RUN
+PASS — backend level (BACKEND-027)
+
+Reporter A start-transcription -> 200 TRANSCRIBING
+Reporter B start-transcription -> 423 STUDY_LOCKED
+Reporter B draft save / submit -> 423 LOCK_NOT_OWNED
+Simultaneous requests          -> exactly one 200, one 423
+Verified in the e2e suite and live against Railway + Redis with the two
+seeded reporter accounts. E2E-004 also needs the frontend half.
 ```
 
 ## Cross-Hospital Security
@@ -1137,8 +1161,8 @@ Current:
 [x] Redis initialized
 [x] Auth completed
 [x] HL7 mock completed
-[ ] Doctor workflow completed
-[ ] Reporter workflow completed
+[x] Doctor workflow completed
+[x] Reporter workflow completed
 [ ] Approval workflow completed
 [ ] HBYS mock completed
 [ ] Operation workflow completed
@@ -1163,14 +1187,14 @@ Current:
 [x] Second HL7
 [x] Images Available
 
-[ ] Doctor Queue
-[ ] Doctor Lock
-[ ] Dictation
+[x] Doctor Queue
+[x] Doctor Lock
+[x] Dictation
 
-[ ] Reporter Queue
-[ ] Reporter Lock
-[ ] Audio Playback
-[ ] Report
+[x] Reporter Queue
+[x] Reporter Lock
+[x] Audio Playback
+[x] Report
 
 [ ] Doctor Approval
 [ ] Finalization
