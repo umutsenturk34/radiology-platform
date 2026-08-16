@@ -1,0 +1,62 @@
+"use client";
+
+import { type FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { ApiClientError } from "@/lib/api";
+import { login } from "@/features/auth/api";
+
+const destinationByRole = {
+  DOCTOR: "/doctor/studies",
+  REPORTER: "/reporter/studies",
+  OPERATION: "/operation",
+  MANAGER: "/manager",
+} as const;
+
+export function LoginForm() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(undefined);
+    setIsSubmitting(true);
+
+    try {
+      const user = await login({ email, password });
+      router.replace(destinationByRole[user.role]);
+    } catch (cause) {
+      if (cause instanceof ApiClientError) {
+        setError(
+          cause.code === "INVALID_CREDENTIALS"
+            ? "E-posta veya parola hatalı."
+            : "Oturum açılamadı. Lütfen tekrar deneyin.",
+        );
+      } else {
+        setError("Oturum açılamadı. Lütfen tekrar deneyin.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <label className="block text-sm font-medium text-slate-800">
+        E-posta
+        <input className="mt-1 block w-full rounded-md border bg-white px-3 py-2" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" />
+      </label>
+      <label className="block text-sm font-medium text-slate-800">
+        Parola
+        <input className="mt-1 block w-full rounded-md border bg-white px-3 py-2" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" />
+      </label>
+      {error ? <p className="rounded-md bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</p> : null}
+      <button className="w-full rounded-md bg-sky-700 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "Oturum açılıyor…" : "Oturum aç"}
+      </button>
+    </form>
+  );
+}

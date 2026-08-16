@@ -14,8 +14,11 @@ function getApiBaseUrl() {
  * Uygulamadaki tek HTTP istemcisi. Access token yalnızca bellek içinde tutulur;
  * refresh token HttpOnly cookie olarak tarayıcı tarafından yönetilir.
  */
-export const apiClient = new ApiClient({
-  baseUrl: getApiBaseUrl(),
-});
+let apiClient: ApiClient | undefined;
+
+export function getApiClient() {
+  apiClient ??= new ApiClient({ baseUrl: getApiBaseUrl() });
+  return apiClient;
+}
 
 export * from "./client";
