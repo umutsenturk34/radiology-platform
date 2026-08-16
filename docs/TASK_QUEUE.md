@@ -1666,7 +1666,7 @@ audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Models
@@ -1680,13 +1680,25 @@ audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
 - many versions
 - final version overwrite edilmiyor
 
+### Completed
+
+- `Report` (studyId unique) + `ReportVersion` modelleri, migration
+  `20260816000728_add_report_models` Railway'de uygulandı
+- `(reportId, versionNumber)` unique (DATA_MODEL section 38)
+- `Report.currentVersionId` yalnızca hızlı erişim pointer'ı; eski versiyonlar
+  silinmez (section 41)
+- `supersedesVersionId` ile versiyon zinciri korunuyor
+- Final/completed versiyon **yerinde düzenlenmez**: içerik değişikliği yeni
+  versiyon gerektirir (section 40, CLAUDE.md section 21). Servis katmanı
+  düzenlenebilir statüleri DRAFT/REVISION_DRAFT ile sınırlıyor
+
 ---
 
 ## BACKEND-026 — Start Transcription
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-025, BACKEND-015
 
 ### Endpoint
@@ -1701,18 +1713,45 @@ POST `/studies/:id/start-transcription`
 - Reporter lock
 - TRANSCRIBING
 
+### Completed
+
+- `POST /studies/:id/start-transcription` — REPORTER + WAITING_TRANSCRIPTION
+- Lock state'ten **önce** alınıyor (start-reading ile aynı gerekçe): raportör A
+  başladıktan sonra status TRANSCRIBING olur; state önce bakılsaydı raportör B
+  423 yerine 409 alırdı
+- Reporter assignment + `assignedReporterId` + ilk DRAFT versiyon aynı
+  transaction'da oluşturuluyor
+- Rapor yoksa oluşturulur; varsa ve mevcut versiyon düzenlenebilir değilse
+  bir sonraki versiyon numarasıyla yeni DRAFT açılır
+
 ---
 
 ## BACKEND-027 — Reporter Concurrency Test
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-026
 
 ### Acceptance
 
 Reporter A aldıktan sonra Reporter B 423 alıyor.
+
+### Completed
+
+`test/reports.e2e-spec.ts` içinde iki gerçek raportör hesabıyla doğrulandı:
+
+```text
+raportör A start-transcription      -> 200 TRANSCRIBING
+raportör B start-transcription      -> 423 STUDY_LOCKED (+ sahip bilgisi)
+eşzamanlı iki istek                 -> tam olarak biri 200, diğeri 423
+raportör B draft save               -> 423 LOCK_NOT_OWNED
+raportör B submit                   -> 423 LOCK_NOT_OWNED
+reddedilen denemeden sonra          -> Study hala A'da
+```
+
+Canlı doğrulama (Railway + Redis, seed'deki `reporter` ve `reporter2`):
+aynı sonuçlar gerçek servislere karşı alındı.
 
 ---
 
@@ -1720,7 +1759,7 @@ Reporter A aldıktan sonra Reporter B 423 alıyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-025, BACKEND-026
 
 ### Endpointler
@@ -1733,6 +1772,16 @@ Reporter A aldıktan sonra Reporter B 423 alıyor.
 - only lock owner edit
 - draft persistence
 - timestamp response
+
+### Completed
+
+- `GET /studies/:id/report` — hospital scope; hekim de okuyabilir
+- `PUT /studies/:id/report/draft` — yalnızca lock sahibi raportör, yalnızca
+  TRANSCRIBING durumunda, yalnızca DRAFT/REVISION_DRAFT versiyona
+- Boş içerik autosave için **kabul edilir**: raportör yazarken tetiklenen
+  autosave'i reddetmek istemciye yanlış "kaydedilemedi" gösterirdi
+- Tamamlanmış/final versiyona yazma girişimi 409 ile reddedilir
+- Başkasının draft'ına yazma girişimi 403
 
 ---
 
@@ -1812,7 +1861,7 @@ gerçek uploaded dictation oynuyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-028
 
 ### Endpoint
@@ -1831,6 +1880,27 @@ TRANSCRIBING
 - Reporter lock release
 - completed report version
 - audit
+
+### Completed
+
+- `POST /studies/:id/submit-report` — REPORTER + lock sahibi + TRANSCRIBING
+- Versiyon `COMPLETED` + `completedAt`; Report `WAITING_APPROVAL`;
+  `currentVersionId` işaretlenir
+- Reporter assignment release edilir, `TRANSCRIBING -> WAITING_APPROVAL`
+  geçişi WorkflowService üzerinden, hepsi tek transaction'da
+- Lock **commit sonrası** bırakılır
+- Boş/yalnızca boşluk içeren rapor 422 ile reddedilir: onay kuyruğuna
+  onaylanacak içeriği olmayan bir dosya düşmemeli
+- Audit'e rapor metni değil yalnızca uzunluğu yazılır (CLAUDE.md section 42)
+
+Canlı doğrulama:
+
+```text
+boş submit          -> 422, Study TRANSCRIBING kalıyor
+submit              -> 200 WAITING_APPROVAL, lockReleased true
+hekim onay kuyruğu  -> Study görünüyor
+submit sonrası draft-> 409, içerik değişmedi (version 1 COMPLETED)
+```
 
 ---
 

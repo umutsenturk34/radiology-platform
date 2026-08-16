@@ -88,6 +88,22 @@ enum DictationStatus {
   FAILED
 }
 
+enum ReportStatus {
+  DRAFT
+  COMPLETED
+  WAITING_APPROVAL
+  FINAL
+  REVISION_DRAFT
+  SUPERSEDED
+}
+
+enum ReportSource {
+  REPORTER
+  MANUAL
+  AI_DRAFT
+  AI_ASSISTED
+}
+
 // ---------------------------------------------------------------------------
 // Identity and access
 // ---------------------------------------------------------------------------
@@ -117,6 +133,7 @@ model User {
   assignmentsMade StudyAssignment[]    @relation("StudyAssignmentAssignedBy")
   auditLogs       AuditLog[]
   dictations      Dictation[]
+  reportVersions  ReportVersion[]
 
   @@index([role, status])
   @@map("users")
@@ -271,6 +288,7 @@ model Study {
   assignments      StudyAssignment[]
   auditLogs        AuditLog[]
   dictations       Dictation[]
+  report           Report?
 
   /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
   /// are only unique within a hospital.
@@ -372,6 +390,68 @@ model Dictation {
   @@index([studyId, status])
   @@index([doctorId])
   @@map("dictations")
+}
+
+/// Report container for a study (docs/DATA_MODEL.md sections 34-36).
+///
+/// One per study; the history lives in ReportVersion, so this row only points
+/// at the active version and never holds content itself.
+model Report {
+  id      String @id @default(uuid()) @db.Uuid
+  studyId String @unique @db.Uuid
+
+  status ReportStatus @default(DRAFT)
+
+  /// Fast pointer to the active version. Does not imply older versions are
+  /// gone (DATA_MODEL.md section 41).
+  currentVersionId String? @unique @db.Uuid
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  finalizedAt DateTime?
+
+  study          Study           @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  versions       ReportVersion[] @relation("ReportVersions")
+  currentVersion ReportVersion?  @relation("ReportCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+
+  @@map("reports")
+}
+
+/// The actual report history (docs/DATA_MODEL.md sections 37, 38 and 40).
+///
+/// A finalized version is never overwritten: a revision creates a new version
+/// and the old one is preserved (CLAUDE.md section 21).
+model ReportVersion {
+  id       String @id @default(uuid()) @db.Uuid
+  reportId String @db.Uuid
+
+  versionNumber Int
+
+  content String @default("")
+
+  source ReportSource @default(REPORTER)
+  status ReportStatus @default(DRAFT)
+
+  createdBy String   @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  completedAt DateTime?
+  finalizedAt DateTime?
+
+  revisionReason String?
+
+  supersedesVersionId String? @db.Uuid
+
+  report      Report         @relation("ReportVersions", fields: [reportId], references: [id], onDelete: Cascade)
+  currentFor  Report?        @relation("ReportCurrentVersion")
+  author      User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  supersedes  ReportVersion? @relation("ReportVersionSupersedes", fields: [supersedesVersionId], references: [id], onDelete: SetNull)
+  supersededBy ReportVersion[] @relation("ReportVersionSupersedes")
+
+  @@unique([reportId, versionNumber])
+  @@index([reportId, createdAt])
+  @@map("report_versions")
 }
 
 // ---------------------------------------------------------------------------

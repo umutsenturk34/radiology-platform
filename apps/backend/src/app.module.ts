@@ -11,6 +11,7 @@ import { WorkflowModule } from './workflow/workflow.module';
 import { LocksModule } from './locks/locks.module';
 import { StorageModule } from './storage/storage.module';
 import { DictationsModule } from './dictations/dictations.module';
+import { ReportsModule } from './reports/reports.module';
 import { StudiesModule } from './studies/studies.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { DevToolsModule } from './dev-tools/dev-tools.module';
@@ -39,6 +40,7 @@ import { DevToolsModule } from './dev-tools/dev-tools.module';
     LocksModule,
     StorageModule,
     DictationsModule,
+    ReportsModule,
     StudiesModule,
     IntegrationsModule,
     DevToolsModule,

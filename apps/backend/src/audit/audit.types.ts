@@ -31,6 +31,10 @@ export const AuditEventType = {
   // dictation
   DICTATION_STARTED: 'DICTATION_STARTED',
   DICTATION_UPLOADED: 'DICTATION_UPLOADED',
+
+  // reporting
+  TRANSCRIPTION_STARTED: 'TRANSCRIPTION_STARTED',
+  REPORT_SUBMITTED: 'REPORT_SUBMITTED',
 } as const;
 
 export type AuditEventType = (typeof AuditEventType)[keyof typeof AuditEventType];

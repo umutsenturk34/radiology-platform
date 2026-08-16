@@ -262,6 +262,28 @@ export function createPrismaStub(
   const auditLogs: Array<Record<string, unknown>> = [];
   const assignments: Array<Record<string, unknown>> = [];
   const dictations: Array<Record<string, unknown>> = [];
+  const reports: Array<Record<string, unknown>> = [];
+  const reportVersions: Array<Record<string, unknown>> = [];
+
+  const withAuthor = (row: Record<string, unknown>) => ({
+    ...row,
+    author: users.find((user) => user.id === row.createdBy) ?? {
+      id: row.createdBy,
+      firstName: '',
+      lastName: '',
+    },
+  });
+
+  const withCurrentVersion = (row: Record<string, unknown>, include?: unknown) => {
+    if (!include) return row;
+    const version = reportVersions.find((entry) => entry.id === row.currentVersionId) ?? null;
+    const nested = (include as { currentVersion?: unknown }).currentVersion;
+    const wantsAuthor = typeof nested === 'object' && nested !== null && 'include' in nested;
+    return {
+      ...row,
+      currentVersion: version ? (wantsAuthor ? withAuthor(version) : version) : null,
+    };
+  };
 
   const withDoctor = (row: Record<string, unknown>) => ({
     ...row,
@@ -307,6 +329,52 @@ export function createPrismaStub(
         );
         matches.forEach((row) => Object.assign(row, data));
         return Promise.resolve({ count: matches.length });
+      },
+    },
+    report: {
+      findUnique: ({ where, include }: { where: Record<string, unknown>; include?: unknown }) => {
+        const row = reports.find((entry) =>
+          where.studyId !== undefined ? entry.studyId === where.studyId : entry.id === where.id,
+        );
+        return Promise.resolve(row ? withCurrentVersion(row, include) : null);
+      },
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: randomUUID(), currentVersionId: null, finalizedAt: null, ...data };
+        reports.push(row);
+        return Promise.resolve(row);
+      },
+      update: ({ where, data, include }: { where: { id: string }; data: Record<string, unknown>; include?: unknown }) => { // prettier-ignore
+        const row = reports.find((entry) => entry.id === where.id);
+        if (!row) throw new Error('report not found');
+        Object.assign(row, data);
+        return Promise.resolve(withCurrentVersion(row, include));
+      },
+    },
+    reportVersion: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: randomUUID(), createdAt: new Date(), completedAt: null, finalizedAt: null, content: '', ...data }; // prettier-ignore
+        reportVersions.push(row);
+        return Promise.resolve(row);
+      },
+      findFirst: ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: Record<string, 'asc' | 'desc'> }) => { // prettier-ignore
+        let matched = reportVersions.filter((row) =>
+          Object.entries(where).every(([key, value]) => row[key] === value),
+        );
+        if (orderBy) {
+          const [field, direction] = Object.entries(orderBy)[0];
+          matched = [...matched].sort((a, b) => {
+            const left = Number(a[field] ?? 0);
+            const right = Number(b[field] ?? 0);
+            return direction === 'desc' ? right - left : left - right;
+          });
+        }
+        return Promise.resolve(matched[0] ?? null);
+      },
+      update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = reportVersions.find((entry) => entry.id === where.id);
+        if (!row) throw new Error('report version not found');
+        Object.assign(row, data);
+        return Promise.resolve(row);
       },
     },
     dictation: {
@@ -447,7 +515,7 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments, dictations };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions };
 }
 
 /**
@@ -504,6 +572,8 @@ export interface TestHarness {
   auditLogs: Array<Record<string, unknown>>;
   assignments: Array<Record<string, unknown>>;
   dictations: Array<Record<string, unknown>>;
+  reports: Array<Record<string, unknown>>;
+  reportVersions: Array<Record<string, unknown>>;
   /** Objects the in-memory storage adapter received, keyed by storage key. */
   storedObjects: Map<string, Buffer>;
   /** Returns the supertest chain (not a promise) so `.expect()` stays usable. */
@@ -562,6 +632,8 @@ export async function createTestHarness(
     auditLogs: prismaStub.auditLogs,
     assignments: prismaStub.assignments,
     dictations: prismaStub.dictations,
+    reports: prismaStub.reports,
+    reportVersions: prismaStub.reportVersions,
     storedObjects: storage.objects,
     login,
     accessTokenFor: async (email: string) => {
