@@ -104,6 +104,13 @@ enum ReportSource {
   AI_ASSISTED
 }
 
+enum HbysDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Identity and access
 // ---------------------------------------------------------------------------
@@ -289,6 +296,7 @@ model Study {
   auditLogs        AuditLog[]
   dictations       Dictation[]
   report           Report?
+  hbysDeliveries   HbysDelivery[]
 
   /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
   /// are only unique within a hospital.
@@ -448,10 +456,85 @@ model ReportVersion {
   author      User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   supersedes  ReportVersion? @relation("ReportVersionSupersedes", fields: [supersedesVersionId], references: [id], onDelete: SetNull)
   supersededBy ReportVersion[] @relation("ReportVersionSupersedes")
+  hbysDeliveries HbysDelivery[]
 
   @@unique([reportId, versionNumber])
   @@index([reportId, createdAt])
   @@map("report_versions")
+}
+
+/// One logical delivery of a finalized report to the hospital HBYS
+/// (docs/DATA_MODEL.md sections 55-58).
+///
+/// `idempotencyKey` is deterministic on the finalized report version, and the
+/// unique constraint is what actually prevents the same report from being
+/// delivered twice (CLAUDE.md section 26).
+model HbysDelivery {
+  id String @id @default(uuid()) @db.Uuid
+
+  studyId         String @db.Uuid
+  reportVersionId String @db.Uuid
+  hospitalId      String @db.Uuid
+
+  status HbysDeliveryStatus @default(PENDING)
+
+  idempotencyKey String @unique
+
+  attemptCount Int @default(0)
+
+  lastErrorCode    String?
+  lastErrorMessage String?
+
+  /// Identifier the hospital returned for the accepted report.
+  externalReportId String?
+
+  queuedAt    DateTime  @default(now())
+  sentAt      DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  study         Study                 @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  reportVersion ReportVersion         @relation(fields: [reportVersionId], references: [id], onDelete: Restrict)
+  attempts      HbysDeliveryAttempt[]
+
+  @@index([status, queuedAt])
+  @@index([studyId])
+  @@index([hospitalId, status])
+  @@map("hbys_deliveries")
+}
+
+/// Every attempt is kept, including the failed ones: a manual retry must not
+/// erase the history that explains why it was needed (CLAUDE.md section 25).
+///
+/// Metadata only — never request or response bodies, which carry patient and
+/// report content (DATA_MODEL.md section 57).
+model HbysDeliveryAttempt {
+  id         String @id @default(uuid()) @db.Uuid
+  deliveryId String @db.Uuid
+
+  attemptNumber Int
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  status HbysDeliveryStatus
+
+  httpStatus   Int?
+  errorCode    String?
+  errorMessage String?
+
+  requestMetadata  Json?
+  responseMetadata Json?
+
+  createdAt DateTime @default(now())
+
+  delivery HbysDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryId, attemptNumber])
+  @@index([deliveryId, startedAt])
+  @@map("hbys_delivery_attempts")
 }
 
 // ---------------------------------------------------------------------------

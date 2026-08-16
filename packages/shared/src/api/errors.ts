@@ -14,6 +14,8 @@ export const ApiErrorCode = {
   // authorization
   FORBIDDEN: 'FORBIDDEN',
   HOSPITAL_ACCESS_DENIED: 'HOSPITAL_ACCESS_DENIED',
+  /** docs/AUTH_ROLES_PERMISSIONS.md section 97. */
+  STUDY_NOT_ASSIGNED_TO_USER: 'STUDY_NOT_ASSIGNED_TO_USER',
 
   // resource
   NOT_FOUND: 'NOT_FOUND',

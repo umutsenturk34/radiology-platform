@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
+import { ApprovalService } from './approval.service';
 import { AuthModule } from '../auth/auth.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { LocksModule } from '../locks/locks.module';
@@ -9,7 +10,7 @@ import { LocksModule } from '../locks/locks.module';
 @Module({
   imports: [AuthModule, WorkflowModule, LocksModule],
   controllers: [ReportsController],
-  providers: [ReportsService],
-  exports: [ReportsService],
+  providers: [ReportsService, ApprovalService],
+  exports: [ReportsService, ApprovalService],
 })
 export class ReportsModule {}

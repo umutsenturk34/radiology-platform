@@ -11,7 +11,13 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@radiology/shared';
 import { ReportsService } from './reports.service';
+import { ApprovalService } from './approval.service';
 import { SaveReportDraftDto, SubmitReportDto } from './dto/report.dto';
+import {
+  FinalizeReportDto,
+  ReturnToReporterDto,
+  SaveApprovalDraftDto,
+} from './dto/approval.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ValidationAppException } from '../common/errors/app.exception';
@@ -30,7 +36,10 @@ const studyIdPipe = new ParseUUIDPipe({
  */
 @Controller('studies')
 export class ReportsController {
-  constructor(private readonly reports: ReportsService) {}
+  constructor(
+    private readonly reports: ReportsService,
+    private readonly approval: ApprovalService,
+  ) {}
 
   @Roles(UserRole.REPORTER)
   @Post(':studyId/start-transcription')
@@ -70,5 +79,48 @@ export class ReportsController {
     @Body() dto: SubmitReportDto,
   ) {
     return this.reports.submitReport(user, studyId, dto.content);
+  }
+
+  @Roles(UserRole.DOCTOR)
+  @Post(':studyId/start-approval')
+  @HttpCode(HttpStatus.OK)
+  async startApproval(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+  ) {
+    return this.approval.startApproval(user, studyId);
+  }
+
+  @Roles(UserRole.DOCTOR)
+  @Put(':studyId/report/approval-draft')
+  @HttpCode(HttpStatus.OK)
+  async saveApprovalDraft(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+    @Body() dto: SaveApprovalDraftDto,
+  ) {
+    return this.approval.saveApprovalDraft(user, studyId, dto.content);
+  }
+
+  @Roles(UserRole.DOCTOR)
+  @Post(':studyId/return-to-reporter')
+  @HttpCode(HttpStatus.OK)
+  async returnToReporter(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+    @Body() dto: ReturnToReporterDto,
+  ) {
+    return this.approval.returnToReporter(user, studyId, dto.reason);
+  }
+
+  @Roles(UserRole.DOCTOR)
+  @Post(':studyId/finalize')
+  @HttpCode(HttpStatus.OK)
+  async finalize(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+    @Body() dto: FinalizeReportDto,
+  ) {
+    return this.approval.finalize(user, studyId, dto.content);
   }
 }

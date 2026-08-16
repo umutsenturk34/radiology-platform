@@ -1925,7 +1925,7 @@ submit sonrası Study approval queue'a gidiyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-029
 
 ### Endpoint
@@ -1938,13 +1938,25 @@ POST `/studies/:id/start-approval`
 - approval lock
 - WAITING_APPROVAL korunuyor
 
+### Completed
+
+- `POST /studies/:id/start-approval` — DOCTOR + WAITING_APPROVAL + approval lock
+- Study status **WAITING_APPROVAL olarak kalır**; onay için ayrı state
+  üretilmez (WORKFLOW_STATE_MACHINE section 15)
+- Study başka bir hekime atanmışsa `403 STUDY_NOT_ASSIGNED_TO_USER`
+- İkinci hekim 423 STUDY_LOCKED
+- `PUT /studies/:id/report/approval-draft` (API_CONTRACT section 59):
+  hekim düzeltmesi raportörün tamamlanmış versiyonunun **üzerine yazmaz**,
+  yeni bir versiyon açar (`supersedesVersionId` ile bağlı). Aynı hekim ikinci
+  kez kaydederse kendi draft'ı güncellenir, her seferinde yeni versiyon açılmaz
+
 ---
 
 ## BACKEND-031 — Return to Reporter
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-030
 
 ### Endpoint
@@ -1957,13 +1969,24 @@ POST `/studies/:id/return-to-reporter`
 - WAITING_TRANSCRIPTION
 - notification/audit
 
+### Completed
+
+- `POST /studies/:id/return-to-reporter` — DOCTOR + lock sahibi +
+  WAITING_APPROVAL; `reason` zorunlu (raportör neyi düzelteceğini bilmeli)
+- `WAITING_APPROVAL -> WAITING_TRANSCRIPTION` WorkflowService üzerinden,
+  audit ile; lock bırakılır
+- Raportör tekrar aldığında yeni bir DRAFT versiyon açılır, tamamlanmış
+  versiyon yerinde düzenlenmez
+
+Not: realtime bildirim BACKEND-045 (WebSocket gateway) ile gelecek.
+
 ---
 
 ## BACKEND-032 — Finalize Report
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-030, BACKEND-025
 
 ### Endpoint
@@ -1980,6 +2003,38 @@ POST `/studies/:id/finalize`
 - HBYS Delivery created
 - HBYS_PENDING
 - lock release
+
+### Completed
+
+- `POST /studies/:id/finalize` — yalnızca **ilgili DOCTOR** + lock sahibi +
+  WAITING_APPROVAL
+- Tek transaction içinde: final ReportVersion + `finalizedAt` + Report FINAL +
+  `WAITING_APPROVAL -> FINAL` + HbysDelivery (PENDING) + `FINAL -> HBYS_PENDING`
+  + audit. Finalize edilmiş bir rapor **hiçbir zaman** gönderimi olmadan
+  var olamaz (CLAUDE.md section 23)
+- Metin değiştirilmeden onaylanırsa mevcut versiyon FINAL olur; hekim metni
+  değiştirirse yeni versiyon FINAL olur ve eski versiyon `SUPERSEDED` işaretlenir
+  — üzerine yazılmaz (CLAUDE.md section 21)
+- Boş rapor 422; ikinci finalize 409 ve **ikinci delivery oluşmaz**
+- REPORTER / OPERATION / MANAGER için 403 (CLAUDE.md sections 22, 62)
+- HBYS beklenmez: yanıt `HBYS_PENDING` döner (API_CONTRACT section 63)
+
+Canlı doğrulama (Railway, tam zincir tek Study üzerinde):
+
+```text
+reporter/operation/manager finalize -> 403 FORBIDDEN (delivery oluşmadı)
+doktor start-approval               -> 200, status WAITING_APPROVAL olarak kaldı
+ikinci doktor start-approval        -> 423 STUDY_LOCKED
+hekim approval-draft                -> 200, version 2 açıldı
+finalize                            -> 200, HBYS_PENDING, delivery PENDING
+ikinci finalize                     -> 409, delivery sayısı hala 1
+
+veritabanı:
+  v1 REPORTER/COMPLETED  "Raportor metni..."      (korundu)
+  v2 MANUAL/FINAL        "Hekim duzeltmesi..."    (v1'i supersede ediyor)
+  delivery: PENDING, attemptCount 0, deterministik idempotencyKey
+  10 transition INITIAL -> HBYS_PENDING, 24 audit kaydı
+```
 
 ---
 
@@ -2050,7 +2105,7 @@ test job enqueue/worker çalışıyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Models
@@ -2061,6 +2116,19 @@ test job enqueue/worker çalışıyor.
 ### Acceptance
 
 migration başarılı.
+
+### Completed
+
+- `HbysDelivery` + `HbysDeliveryAttempt` modelleri, migration
+  `20260816060458_add_hbys_delivery` Railway'de uygulandı
+- `idempotencyKey` **unique**: anahtar `sha256(studyId:reportVersionId)` ile
+  deterministik üretiliyor, yani aynı finalize edilmiş rapor için ikinci bir
+  mantıksal gönderim veritabanı seviyesinde engelleniyor
+  (INTEGRATIONS section 42, CLAUDE.md section 26)
+- `(deliveryId, attemptNumber)` unique; her deneme ayrı satır — manuel retry
+  önceki denemeleri silmez (CLAUDE.md section 25)
+- Attempt tablosunda yalnızca metadata tutulur; istek/yanıt gövdeleri
+  saklanmaz (DATA_MODEL section 57)
 
 ---
 

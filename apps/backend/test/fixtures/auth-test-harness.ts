@@ -264,6 +264,7 @@ export function createPrismaStub(
   const dictations: Array<Record<string, unknown>> = [];
   const reports: Array<Record<string, unknown>> = [];
   const reportVersions: Array<Record<string, unknown>> = [];
+  const hbysDeliveries: Array<Record<string, unknown>> = [];
 
   const withAuthor = (row: Record<string, unknown>) => ({
     ...row,
@@ -348,6 +349,38 @@ export function createPrismaStub(
         if (!row) throw new Error('report not found');
         Object.assign(row, data);
         return Promise.resolve(withCurrentVersion(row, include));
+      },
+    },
+    hbysDelivery: {
+      findUnique: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          hbysDeliveries.find((row) =>
+            where.idempotencyKey !== undefined
+              ? row.idempotencyKey === where.idempotencyKey
+              : row.id === where.id,
+          ) ?? null,
+        ),
+      findMany: ({ where }: { where?: Record<string, unknown> }) =>
+        Promise.resolve(
+          hbysDeliveries.filter((row) =>
+            Object.entries(where ?? {}).every(([key, value]) => row[key] === value),
+          ),
+        ),
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        // Mirrors the unique constraint on idempotencyKey, which is what stops
+        // a second logical delivery for the same finalized version.
+        if (hbysDeliveries.some((row) => row.idempotencyKey === data.idempotencyKey)) {
+          throw new Error('unique constraint: idempotencyKey');
+        }
+        const row = { id: randomUUID(), attemptCount: 0, queuedAt: new Date(), sentAt: null, completedAt: null, ...data }; // prettier-ignore
+        hbysDeliveries.push(row);
+        return Promise.resolve(row);
+      },
+      update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = hbysDeliveries.find((entry) => entry.id === where.id);
+        if (!row) throw new Error('delivery not found');
+        Object.assign(row, data);
+        return Promise.resolve(row);
       },
     },
     reportVersion: {
@@ -515,7 +548,7 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries };
 }
 
 /**
@@ -574,6 +607,7 @@ export interface TestHarness {
   dictations: Array<Record<string, unknown>>;
   reports: Array<Record<string, unknown>>;
   reportVersions: Array<Record<string, unknown>>;
+  hbysDeliveries: Array<Record<string, unknown>>;
   /** Objects the in-memory storage adapter received, keyed by storage key. */
   storedObjects: Map<string, Buffer>;
   /** Returns the supertest chain (not a promise) so `.expect()` stays usable. */
@@ -634,6 +668,7 @@ export async function createTestHarness(
     dictations: prismaStub.dictations,
     reports: prismaStub.reports,
     reportVersions: prismaStub.reportVersions,
+    hbysDeliveries: prismaStub.hbysDeliveries,
     storedObjects: storage.objects,
     login,
     accessTokenFor: async (email: string) => {
