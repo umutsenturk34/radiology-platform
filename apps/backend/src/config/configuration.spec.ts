@@ -165,7 +165,56 @@ describe('loadConfiguration — JWT', () => {
     );
   });
 
-  it('produces no warnings when both secrets are configured', () => {
-    expect(loadConfiguration(PRODUCTION_ENV).warnings).toEqual([]);
+  it('produces no JWT warnings when both secrets are configured', () => {
+    const warnings = loadConfiguration(PRODUCTION_ENV).warnings;
+
+    expect(warnings.filter((warning) => warning.includes('JWT'))).toEqual([]);
+  });
+});
+
+describe('loadConfiguration — object storage', () => {
+  it('defaults to the local pilot driver', () => {
+    const config = loadConfiguration({ ...BASE_ENV });
+
+    expect(config.storage).toMatchObject({
+      driver: 'local',
+      localDir: '.storage',
+      playbackUrlTtlSeconds: 300,
+    });
+  });
+
+  it('warns that local storage does not survive a redeploy in production', () => {
+    const warnings = loadConfiguration(PRODUCTION_ENV).warnings;
+
+    expect(warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('OBJECT_STORAGE_DRIVER=local')]),
+    );
+  });
+
+  it('does not warn when a real bucket is selected', () => {
+    const warnings = loadConfiguration({ ...PRODUCTION_ENV, OBJECT_STORAGE_DRIVER: 's3' }).warnings;
+
+    expect(warnings.filter((warning) => warning.includes('OBJECT_STORAGE_DRIVER'))).toEqual([]);
+  });
+
+  it('rejects an unknown driver rather than silently using local files', () => {
+    expect(() => loadConfiguration({ ...BASE_ENV, OBJECT_STORAGE_DRIVER: 'dropbox' })).toThrow(
+      /OBJECT_STORAGE_DRIVER must be local or s3/,
+    );
+  });
+
+  it('accepts overrides for the playback TTL and upload ceiling', () => {
+    const config = loadConfiguration({
+      ...BASE_ENV,
+      PLAYBACK_URL_TTL_SECONDS: '60',
+      MAX_DICTATION_UPLOAD_BYTES: '1048576',
+      OBJECT_STORAGE_LOCAL_DIR: '/var/data/audio',
+    });
+
+    expect(config.storage).toMatchObject({
+      playbackUrlTtlSeconds: 60,
+      maxUploadBytes: 1048576,
+      localDir: '/var/data/audio',
+    });
   });
 });

@@ -81,6 +81,13 @@ enum AssignmentType {
   REPORTER
 }
 
+enum DictationStatus {
+  RECORDING
+  UPLOADING
+  COMPLETED
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Identity and access
 // ---------------------------------------------------------------------------
@@ -109,6 +116,7 @@ model User {
   assignments     StudyAssignment[]    @relation("StudyAssignmentUser")
   assignmentsMade StudyAssignment[]    @relation("StudyAssignmentAssignedBy")
   auditLogs       AuditLog[]
+  dictations      Dictation[]
 
   @@index([role, status])
   @@map("users")
@@ -262,6 +270,7 @@ model Study {
   statusHistory    StudyStatusHistory[]
   assignments      StudyAssignment[]
   auditLogs        AuditLog[]
+  dictations       Dictation[]
 
   /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
   /// are only unique within a hospital.
@@ -324,6 +333,45 @@ model StudyAssignment {
   @@index([studyId, type])
   @@index([userId, type])
   @@map("study_assignments")
+}
+
+/// A doctor's voice dictation (docs/DATA_MODEL.md sections 30-33).
+///
+/// The audio itself never lives here: PostgreSQL stores `storageKey` and the
+/// binary stays in object storage (CLAUDE.md section 20). A study may carry
+/// several dictations, even though the pilot happy path uses one.
+model Dictation {
+  id       String @id @default(uuid()) @db.Uuid
+  studyId  String @db.Uuid
+  doctorId String @db.Uuid
+
+  /// Object storage key. Null until the upload completes.
+  storageKey String?
+  mimeType   String?
+  fileSize   Int?
+  durationMs Int?
+
+  /// Integrity check for the uploaded object.
+  checksum String?
+
+  status DictationStatus @default(RECORDING)
+
+  /// Set when the upload fails, so the doctor is not told it succeeded.
+  failureReason String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  uploadedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  study  Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  doctor User  @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+
+  @@index([studyId, status])
+  @@index([doctorId])
+  @@map("dictations")
 }
 
 // ---------------------------------------------------------------------------

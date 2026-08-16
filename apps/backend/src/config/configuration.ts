@@ -38,6 +38,18 @@ export interface LockConfig {
   heartbeatSeconds: number;
 }
 
+export type StorageDriver = 'local' | 's3';
+
+export interface StorageConfig {
+  driver: StorageDriver;
+  /** Directory used by the local pilot driver. */
+  localDir: string;
+  /** Lifetime of a dictation playback URL. */
+  playbackUrlTtlSeconds: number;
+  /** Largest dictation upload accepted, in bytes. */
+  maxUploadBytes: number;
+}
+
 export interface AppConfig {
   nodeEnv: string;
   appEnv: AppEnvironment;
@@ -51,6 +63,7 @@ export interface AppConfig {
   database: DatabaseConfig;
   jwt: JwtConfig;
   lock: LockConfig;
+  storage: StorageConfig;
   /**
    * Non-fatal configuration notes surfaced at startup. Never contains a secret
    * value — only the fact that a fallback was applied.
@@ -71,6 +84,12 @@ const DEFAULT_TRANSACTION_MAX_WAIT_MS = 10_000;
 /** Pilot defaults from TASK_QUEUE BACKEND-015. */
 const DEFAULT_LOCK_TTL_SECONDS = 60;
 const DEFAULT_LOCK_HEARTBEAT_SECONDS = 20;
+
+const DEFAULT_STORAGE_LOCAL_DIR = '.storage';
+/** Short-lived on purpose: a playback URL should not be shareable for long. */
+const DEFAULT_PLAYBACK_URL_TTL_SECONDS = 300;
+/** 50 MB — well above a normal dictation, low enough to bound memory. */
+const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -234,6 +253,31 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     problems.push('LOCK_HEARTBEAT_SECONDS must be smaller than LOCK_TTL_SECONDS');
   }
 
+  const storageDriver = (env.OBJECT_STORAGE_DRIVER ?? 'local').trim().toLowerCase();
+  if (storageDriver !== 'local' && storageDriver !== 's3') {
+    problems.push(`OBJECT_STORAGE_DRIVER must be local or s3, received "${env.OBJECT_STORAGE_DRIVER}"`); // prettier-ignore
+  }
+  if (storageDriver === 'local' && isProduction) {
+    // Local files do not survive a container rebuild, so a production pilot
+    // must point at a real bucket (DEVOPS-004).
+    warnings.push(
+      'OBJECT_STORAGE_DRIVER=local in production: dictation audio will not survive a redeploy.',
+    );
+  }
+
+  const playbackUrlTtlSeconds = parsePositiveInt(
+    env.PLAYBACK_URL_TTL_SECONDS,
+    DEFAULT_PLAYBACK_URL_TTL_SECONDS,
+    'PLAYBACK_URL_TTL_SECONDS',
+    problems,
+  );
+  const maxUploadBytes = parsePositiveInt(
+    env.MAX_DICTATION_UPLOAD_BYTES,
+    DEFAULT_MAX_UPLOAD_BYTES,
+    'MAX_DICTATION_UPLOAD_BYTES',
+    problems,
+  );
+
   const accessSecret = resolveJwtSecret(env.JWT_SECRET, 'JWT_SECRET', isProduction, problems, warnings); // prettier-ignore
   const refreshSecret = resolveJwtSecret(env.JWT_REFRESH_SECRET, 'JWT_REFRESH_SECRET', isProduction, problems, warnings); // prettier-ignore
 
@@ -272,6 +316,12 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
       refreshTtlSeconds: refreshTtlSeconds as number,
     },
     lock: { ttlSeconds: lockTtlSeconds, heartbeatSeconds: lockHeartbeatSeconds },
+    storage: {
+      driver: storageDriver as StorageDriver,
+      localDir: env.OBJECT_STORAGE_LOCAL_DIR?.trim() || DEFAULT_STORAGE_LOCAL_DIR,
+      playbackUrlTtlSeconds,
+      maxUploadBytes,
+    },
     warnings,
   };
 }

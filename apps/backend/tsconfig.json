@@ -17,7 +17,10 @@
     "isolatedModules": false,
     "declaration": false,
     "declarationMap": false,
-    "types": ["node", "jest"],
+    // "multer" is listed explicitly: it augments the global Express namespace
+    // with Express.Multer.File, and an explicit `types` array excludes any
+    // package not named here.
+    "types": ["node", "jest", "multer"],
     "strictPropertyInitialization": false
   },
   "include": ["src/**/*.ts"],

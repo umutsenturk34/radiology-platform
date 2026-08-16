@@ -9,6 +9,8 @@ import { AuthModule } from './auth/auth.module';
 import { AuditModule } from './audit/audit.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { LocksModule } from './locks/locks.module';
+import { StorageModule } from './storage/storage.module';
+import { DictationsModule } from './dictations/dictations.module';
 import { StudiesModule } from './studies/studies.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { DevToolsModule } from './dev-tools/dev-tools.module';
@@ -35,6 +37,8 @@ import { DevToolsModule } from './dev-tools/dev-tools.module';
     AuthModule,
     WorkflowModule,
     LocksModule,
+    StorageModule,
+    DictationsModule,
     StudiesModule,
     IntegrationsModule,
     DevToolsModule,

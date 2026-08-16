@@ -3,6 +3,7 @@ import { ParseUUIDPipe } from '@nestjs/common';
 import { UserRole } from '@radiology/shared';
 import { StudyActionsService } from './study-actions.service';
 import { ForceReleaseLockDto } from './dto/force-release-lock.dto';
+import { CompleteReadingDto } from './dto/complete-reading.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ValidationAppException } from '../common/errors/app.exception';
@@ -33,6 +34,17 @@ export class StudyActionsController {
     @Param('studyId', studyIdPipe) studyId: string,
   ) {
     return this.actions.startReading(user, studyId);
+  }
+
+  @Roles(UserRole.DOCTOR)
+  @Post(':studyId/complete-reading')
+  @HttpCode(HttpStatus.OK)
+  async completeReading(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+    @Body() dto: CompleteReadingDto,
+  ) {
+    return this.actions.completeReading(user, studyId, dto);
   }
 
   @Get(':studyId/lock')

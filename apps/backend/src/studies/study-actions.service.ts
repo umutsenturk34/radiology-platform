@@ -1,12 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import { StudyStatus, UserRole } from '@radiology/shared';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { ApiErrorCode, StudyStatus, UserRole } from '@radiology/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowService } from '../workflow/workflow.service';
-import { StudyLockService } from '../locks/study-lock.service';
+import { LockNotOwnedException, StudyLockService } from '../locks/study-lock.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditEventType } from '../audit/audit.types';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
+import { DictationsService } from '../dictations/dictations.service';
 import {
+  AppException,
   ForbiddenAppException,
   InvalidStateTransitionException,
   NotFoundAppException,
@@ -14,6 +16,17 @@ import {
 import { AppLogger } from '../common/logging/app-logger.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import type { StudyLockInfo } from '../locks/lock.types';
+
+/** 422 — reading cannot be completed without audio to transcribe. */
+export class DictationRequiredException extends AppException {
+  constructor() {
+    super(
+      ApiErrorCode.DICTATION_REQUIRED,
+      'A completed dictation is required before completing reading.',
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
 
 export interface StartReadingResult {
   studyId: string;
@@ -25,6 +38,13 @@ export interface StartReadingResult {
     heartbeatIntervalSeconds: number;
   };
   readingStartedAt: string;
+}
+
+export interface CompleteReadingResult {
+  studyId: string;
+  status: StudyStatus;
+  readingCompletedAt: string;
+  lockReleased: boolean;
 }
 
 /**
@@ -44,9 +64,18 @@ export class StudyActionsService {
     private readonly locks: StudyLockService,
     private readonly audit: AuditService,
     private readonly hospitalScope: HospitalScopeService,
+    private readonly dictations: DictationsService,
     logger: AppLogger,
   ) {
     this.logger = logger.child(StudyActionsService.name);
+  }
+
+  private async assertLockOwner(studyId: string, userId: string): Promise<void> {
+    const lock = await this.locks.getLock(studyId);
+
+    if (!lock || lock.ownerUserId !== userId) {
+      throw new LockNotOwnedException({ studyId });
+    }
   }
 
   /**
@@ -133,6 +162,84 @@ export class StudyActionsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * `POST /studies/:id/complete-reading` (docs/API_CONTRACT.md sections 43-45).
+   *
+   * Requires a completed dictation: without audio the reporter has nothing to
+   * transcribe, so letting the study move on would strand it in the reporter
+   * queue. The doctor lock is released once the study is handed over.
+   */
+  async completeReading(
+    user: AuthenticatedUser,
+    studyId: string,
+    input: { dictationId?: string } = {},
+  ): Promise<CompleteReadingResult> {
+    const study = await this.loadStudyInScope(user, studyId);
+
+    if (study.status !== StudyStatus.READING) {
+      throw new InvalidStateTransitionException(study.status, StudyStatus.READ);
+    }
+
+    await this.assertLockOwner(studyId, user.id);
+
+    const dictation = await this.dictations.findCompleted(studyId, input.dictationId);
+    if (!dictation) {
+      throw new DictationRequiredException();
+    }
+
+    const readingCompletedAt = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.audit.record(
+        {
+          eventType: AuditEventType.STUDY_READING_COMPLETED,
+          actor: { userId: user.id, role: user.role },
+          hospitalId: study.hospitalId,
+          patientId: study.patientId,
+          studyId,
+          entityType: 'Study',
+          entityId: studyId,
+          metadata: { dictationId: dictation.id },
+        },
+        tx,
+      );
+
+      await tx.studyAssignment.updateMany({
+        where: { studyId, userId: user.id, type: 'DOCTOR', releasedAt: null },
+        data: { releasedAt: readingCompletedAt },
+      });
+
+      // READ is a short-lived internal state; the study is handed to the
+      // reporter queue in the same transaction (API_CONTRACT section 43).
+      await this.workflow.transition(
+        studyId,
+        StudyStatus.READ,
+        { actorUserId: user.id, actorRole: user.role, reason: 'Doctor completed reading' },
+        tx,
+      );
+
+      await this.workflow.transition(
+        studyId,
+        StudyStatus.WAITING_TRANSCRIPTION,
+        { reason: 'Handed to the reporter queue' },
+        tx,
+      );
+    });
+
+    // Released only after the state change committed: releasing first would let
+    // another doctor take a study that is still READING if the commit failed.
+    const lockReleased = await this.locks.release(studyId, user.id).catch(() => false);
+
+    this.logger.info({ message: 'Reading completed', studyId, doctorId: user.id });
+
+    return {
+      studyId,
+      status: StudyStatus.WAITING_TRANSCRIPTION,
+      readingCompletedAt: readingCompletedAt.toISOString(),
+      lockReleased,
+    };
   }
 
   /** `POST /studies/:id/lock/heartbeat` — owner only. */

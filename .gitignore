@@ -33,3 +33,7 @@ logs/
 # caches
 .eslintcache
 .turbo/
+
+# Pilot object storage (local driver). Audio must never be committed.
+.storage/
+apps/backend/.storage/

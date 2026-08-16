@@ -1447,7 +1447,7 @@ GET `/studies/:id/pacs/viewer` çalışıyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Model
@@ -1458,13 +1458,24 @@ Dictation.
 
 migration çalışıyor.
 
+### Completed
+
+- `Dictation` modeli + migration `20260815235012_add_dictation` Railway'de
+  uygulandı (additive; mevcut tablolara dokunulmadı)
+- Alanlar DATA_MODEL section 30 ile birebir; ek olarak `failureReason`:
+  yükleme başarısız olduğunda kayıt `FAILED` olur ve neden saklanır, böylece
+  hekime "tamamlandı" görünmez
+- `DictationStatus` enum'u: RECORDING / UPLOADING / COMPLETED / FAILED
+- Study 1 → N Dictation (DATA_MODEL section 33)
+- Ses binary'si tabloda **yok**; yalnızca `storageKey`, `fileSize`, `checksum`
+
 ---
 
 ## BACKEND-022 — Object Storage Abstraction
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-021
 
 ### Interface
@@ -1477,13 +1488,31 @@ migration çalışıyor.
 
 storage implementation replace edilebilir.
 
+### Completed
+
+- `src/storage/object-storage.contract.ts`: `upload`, `createReadStream`,
+  `getSize`, `getSignedUrl`. **Delete yok** — klinik kaydı silmek normal
+  workflow'un parçası değil, bu yüzden yetenek hiç tanımlanmadı
+- `LocalObjectStorageAdapter`: pilot için yerel dizin. Key'ler backend
+  tarafından üretilse de path traversal kontrolü var
+- `OBJECT_STORAGE_DRIVER=s3` seçilirse uygulama **başlangıçta hata verir**;
+  sessizce yerel diske yazıp "bucket'a yazıyorum" sanmaz. Gerçek bucket
+  DEVOPS-004 ile geliyor
+- Production'da `local` sürücü seçiliyse startup uyarısı: dosyalar redeploy'da
+  kaybolur
+
+### Bilinen sınır
+
+Yerel sürücü Railway container'ı yeniden kurulduğunda kayıtları kaybeder.
+Pilot test kayıtları için kabul edilebilir; DEVOPS-004 bu yüzden açık.
+
 ---
 
 ## BACKEND-023 — Dictation API
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-022, BACKEND-016
 
 ### Endpointler
@@ -1498,6 +1527,23 @@ storage implementation replace edilebilir.
 - only appropriate user
 - completed upload metadata DB'de
 - playback çalışıyor
+
+### Completed
+
+- `POST /studies/:id/dictations` — DOCTOR + **lock sahibi** + Study READING
+- `POST /dictations/:id/upload` — multipart; yalnızca kaydı başlatan hekim.
+  Tamamlanmış bir kaydın üzerine yazmak 409 ile reddedilir: raportörün
+  dinlemiş olabileceği klinik ses sessizce değiştirilemez
+- Yükleme hata verirse kayıt `FAILED` + `failureReason` olur
+- `GET /studies/:id/dictations` — hospital scope; raportör de görebilir
+- `GET /dictations/:id/playback` — kısa ömürlü URL (varsayılan 300 sn)
+- `GET /dictations/:id/audio` — `<audio>` elementi Authorization header
+  gönderemediği için `@Public()`, ancak yetki tamamen imzalı token'dan gelir:
+  token dictation'a ve kullanıcıya bağlı, HMAC ile imzalı, süreli; stream
+  başlamadan önce kullanıcının hospital scope'u yeniden kontrol edilir
+- MIME whitelist; boyut tavanı `MAX_DICTATION_UPLOAD_BYTES`
+
+Testler: 11 playback-token birim testi + 24 e2e.
 
 ---
 
@@ -1543,7 +1589,7 @@ gerçek mikrofon kaydı backend'e gidiyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-023, BACKEND-014
 
 ### Endpoint
@@ -1568,6 +1614,33 @@ READING
 - timestamps
 - audit
 - Reporter queue'a düşüyor
+
+### Completed
+
+- `POST /studies/:id/complete-reading` — DOCTOR + lock sahibi + Study READING
+- **Tamamlanmış dictation zorunlu**; yoksa `422 DICTATION_REQUIRED`. Aksi halde
+  raportör kuyruğuna dinleyecek sesi olmayan bir dosya düşerdi
+- Tek transaction içinde `READING -> READ -> WAITING_TRANSCRIPTION` (READ kısa
+  ömürlü internal state, API_CONTRACT section 43) + doctor assignment release
+  + audit
+- Lock **commit sonrası** bırakılır: önce bırakılsaydı commit başarısız
+  olduğunda hala READING olan bir Study'yi başka hekim alabilirdi
+
+Canlı doğrulama (Railway + yerel object storage):
+
+```text
+complete-reading (ses yok)   -> 422 DICTATION_REQUIRED, status READING kalıyor
+dictation create             -> 201 RECORDING
+upload (1088 bayt)           -> 200 COMPLETED, checksum kaydedildi
+raportör playback            -> 200, kısa ömürlü token'lı URL
+audio token ile              -> 200, 1088 bayt (byte-exact)
+audio token'sız              -> 401
+complete-reading             -> 200 WAITING_TRANSCRIPTION, lockReleased true
+lock                         -> locked false
+raportör kuyruğu             -> Study görünüyor
+veritabanı satırı            -> yalnızca storageKey/fileSize/checksum, ses yok
+audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
+```
 
 ---
 

@@ -2,12 +2,15 @@ import type { INestApplication, Type } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { hash as argonHash } from '@node-rs/argon2';
+import { createHash, randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
 import { loadConfiguration } from '../../src/config/configuration';
 import { AppLogger } from '../../src/common/logging/app-logger.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { RedisService } from '../../src/redis/redis.service';
+import { OBJECT_STORAGE, type ObjectStorage } from '../../src/storage/object-storage.contract';
 import { REFRESH_COOKIE_NAME } from '../../src/auth/auth.constants';
 
 /**
@@ -258,6 +261,16 @@ export function createPrismaStub(
   const statusHistory: Array<Record<string, unknown>> = [];
   const auditLogs: Array<Record<string, unknown>> = [];
   const assignments: Array<Record<string, unknown>> = [];
+  const dictations: Array<Record<string, unknown>> = [];
+
+  const withDoctor = (row: Record<string, unknown>) => ({
+    ...row,
+    doctor: users.find((user) => user.id === row.doctorId) ?? {
+      id: row.doctorId,
+      firstName: '',
+      lastName: '',
+    },
+  });
 
   const service = {
     ping: jest.fn(async () => true),
@@ -285,6 +298,42 @@ export function createPrismaStub(
       create: ({ data }: { data: Record<string, unknown> }) => {
         assignments.push(data);
         return Promise.resolve(data);
+      },
+      updateMany: ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const matches = assignments.filter((row) =>
+          Object.entries(where).every(([key, value]) =>
+            value === null ? row[key] == null : row[key] === value,
+          ),
+        );
+        matches.forEach((row) => Object.assign(row, data));
+        return Promise.resolve({ count: matches.length });
+      },
+    },
+    dictation: {
+      create: ({ data, include }: { data: Record<string, unknown>; include?: unknown }) => {
+        const row = { id: randomUUID(), startedAt: new Date(), completedAt: null, uploadedAt: null, storageKey: null, fileSize: null, durationMs: null, checksum: null, failureReason: null, ...data }; // prettier-ignore
+        dictations.push(row);
+        return Promise.resolve(include ? withDoctor(row) : row);
+      },
+      findUnique: ({ where }: { where: { id: string } }) =>
+        Promise.resolve(dictations.find((row) => row.id === where.id) ?? null),
+      findFirst: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          dictations.find((row) =>
+            Object.entries(where).every(([key, value]) => row[key] === value),
+          ) ?? null,
+        ),
+      findMany: ({ where, include }: { where: Record<string, unknown>; include?: unknown }) => {
+        const matched = dictations.filter((row) =>
+          Object.entries(where).every(([key, value]) => row[key] === value),
+        );
+        return Promise.resolve(include ? matched.map(withDoctor) : matched);
+      },
+      update: ({ where, data, include }: { where: { id: string }; data: Record<string, unknown>; include?: unknown }) => { // prettier-ignore
+        const row = dictations.find((candidate) => candidate.id === where.id);
+        if (!row) throw new Error('dictation not found');
+        Object.assign(row, data);
+        return Promise.resolve(include ? withDoctor(row) : row);
       },
     },
     user: {
@@ -398,7 +447,36 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations };
+}
+
+/**
+ * In-memory object storage, so the suite never writes audio to disk and the
+ * stored bytes stay inspectable.
+ */
+export function createObjectStorageStub() {
+  const objects = new Map<string, Buffer>();
+
+  const adapter: ObjectStorage = {
+    name: 'InMemoryObjectStorage',
+    upload: (key, body) => {
+      objects.set(key, body);
+      return Promise.resolve({
+        key,
+        size: body.byteLength,
+        checksum: createHash('sha256').update(body).digest('hex'),
+      });
+    },
+    createReadStream: (key) => {
+      const body = objects.get(key);
+      if (!body) throw new Error(`object not found: ${key}`);
+      return Promise.resolve(Readable.from(body));
+    },
+    getSize: (key) => Promise.resolve(objects.get(key)?.byteLength ?? 0),
+    getSignedUrl: () => Promise.resolve(null),
+  };
+
+  return { adapter, objects };
 }
 
 export function createRedisStub(withWorkingClient = false) {
@@ -425,6 +503,9 @@ export interface TestHarness {
   statusHistory: Array<Record<string, unknown>>;
   auditLogs: Array<Record<string, unknown>>;
   assignments: Array<Record<string, unknown>>;
+  dictations: Array<Record<string, unknown>>;
+  /** Objects the in-memory storage adapter received, keyed by storage key. */
+  storedObjects: Map<string, Buffer>;
   /** Returns the supertest chain (not a promise) so `.expect()` stays usable. */
   login: (email: string, password?: string) => request.Test;
   /** Logs in and returns the access token. */
@@ -450,6 +531,7 @@ export async function createTestHarness(
   const users = await buildTestUsers();
   const studies = options.studies ?? [];
   const prismaStub = createPrismaStub(users, options.hospitalAccess, studies);
+  const storage = createObjectStorageStub();
 
   const moduleRef: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
@@ -459,6 +541,8 @@ export async function createTestHarness(
     .useValue(prismaStub.service)
     .overrideProvider(RedisService)
     .useValue(createRedisStub(options.withRedis ?? false))
+    .overrideProvider(OBJECT_STORAGE)
+    .useValue(storage.adapter)
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });
@@ -477,6 +561,8 @@ export async function createTestHarness(
     statusHistory: prismaStub.statusHistory,
     auditLogs: prismaStub.auditLogs,
     assignments: prismaStub.assignments,
+    dictations: prismaStub.dictations,
+    storedObjects: storage.objects,
     login,
     accessTokenFor: async (email: string) => {
       const response = await login(email).expect(200);
