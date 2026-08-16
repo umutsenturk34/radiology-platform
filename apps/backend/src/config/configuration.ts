@@ -50,6 +50,16 @@ export interface StorageConfig {
   maxUploadBytes: number;
 }
 
+export interface HbysConfig {
+  /**
+   * Delay before each automatic retry, in order. The length of this list is
+   * also the number of automatic attempts (docs/INTEGRATIONS.md section 39).
+   */
+  retryDelaysMs: number[];
+  /** How long the mock adapter stalls before reporting a timeout. */
+  mockTimeoutDelayMs: number;
+}
+
 export interface AppConfig {
   nodeEnv: string;
   appEnv: AppEnvironment;
@@ -64,6 +74,7 @@ export interface AppConfig {
   jwt: JwtConfig;
   lock: LockConfig;
   storage: StorageConfig;
+  hbys: HbysConfig;
   /**
    * Non-fatal configuration notes surfaced at startup. Never contains a secret
    * value — only the fact that a fallback was applied.
@@ -84,6 +95,10 @@ const DEFAULT_TRANSACTION_MAX_WAIT_MS = 10_000;
 /** Pilot defaults from TASK_QUEUE BACKEND-015. */
 const DEFAULT_LOCK_TTL_SECONDS = 60;
 const DEFAULT_LOCK_HEARTBEAT_SECONDS = 20;
+
+/** Pilot retry schedule from docs/INTEGRATIONS.md section 39: 30s, 2m, 5m. */
+const DEFAULT_HBYS_RETRY_DELAYS_MS = [30_000, 120_000, 300_000];
+const DEFAULT_MOCK_HBYS_TIMEOUT_DELAY_MS = 1_000;
 
 const DEFAULT_STORAGE_LOCAL_DIR = '.storage';
 /** Short-lived on purpose: a playback URL should not be shareable for long. */
@@ -124,6 +139,25 @@ function parsePositiveInt(
   }
 
   return parsed;
+}
+
+/** Parses `30000,120000,300000` into retry delays. */
+function parseDelayList(
+  raw: string | undefined,
+  fallback: number[],
+  problems: string[],
+): number[] {
+  if (raw === undefined || raw.trim() === '') return fallback;
+
+  const parts = raw.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
+  const values = parts.map((part) => Number.parseInt(part, 10));
+
+  if (values.length === 0 || values.some((value) => !Number.isInteger(value) || value < 0)) {
+    problems.push(`HBYS_RETRY_DELAYS_MS must be a comma separated list of milliseconds, received "${raw}"`); // prettier-ignore
+    return fallback;
+  }
+
+  return values;
 }
 
 function parseOriginList(raw: string | undefined): string[] {
@@ -278,6 +312,18 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     problems,
   );
 
+  const retryDelaysMs = parseDelayList(
+    env.HBYS_RETRY_DELAYS_MS,
+    DEFAULT_HBYS_RETRY_DELAYS_MS,
+    problems,
+  );
+  const mockTimeoutDelayMs = parsePositiveInt(
+    env.MOCK_HBYS_TIMEOUT_DELAY_MS,
+    DEFAULT_MOCK_HBYS_TIMEOUT_DELAY_MS,
+    'MOCK_HBYS_TIMEOUT_DELAY_MS',
+    problems,
+  );
+
   const accessSecret = resolveJwtSecret(env.JWT_SECRET, 'JWT_SECRET', isProduction, problems, warnings); // prettier-ignore
   const refreshSecret = resolveJwtSecret(env.JWT_REFRESH_SECRET, 'JWT_REFRESH_SECRET', isProduction, problems, warnings); // prettier-ignore
 
@@ -316,6 +362,7 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
       refreshTtlSeconds: refreshTtlSeconds as number,
     },
     lock: { ttlSeconds: lockTtlSeconds, heartbeatSeconds: lockHeartbeatSeconds },
+    hbys: { retryDelaysMs, mockTimeoutDelayMs },
     storage: {
       driver: storageDriver as StorageDriver,
       localDir: env.OBJECT_STORAGE_LOCAL_DIR?.trim() || DEFAULT_STORAGE_LOCAL_DIR,

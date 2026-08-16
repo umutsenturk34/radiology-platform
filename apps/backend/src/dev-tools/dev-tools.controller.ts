@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ParseUUIDPipe } from '@nestjs/common';
 import { UserRole } from '@radiology/shared';
 import { DevToolsGuard } from './dev-tools.guard';
@@ -8,6 +8,8 @@ import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { IntegrationRegistryService } from '../integrations/integration-registry.service';
 import { Hl7Service } from '../integrations/hl7/hl7.service';
 import { StudyImagesService } from '../studies/study-images.service';
+import { MockHbysAdapter } from '../integrations/hbys/mock-hbys.adapter';
+import { SetMockHbysModeDto } from './dto/mock-hbys.dto';
 import { ValidationAppException } from '../common/errors/app.exception';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -38,7 +40,20 @@ export class DevToolsController {
     private readonly hl7Service: Hl7Service,
     private readonly studyImages: StudyImagesService,
     private readonly hospitalScope: HospitalScopeService,
+    private readonly mockHbys: MockHbysAdapter,
   ) {}
+
+  /**
+   * `PUT /dev-tools/mock-hbys` (docs/API_CONTRACT.md section 98).
+   *
+   * Switches the mock adapter between SUCCESS, FAIL and TIMEOUT so the failure
+   * and retry paths can be exercised deterministically.
+   */
+  @Put('mock-hbys')
+  @HttpCode(HttpStatus.OK)
+  async setMockHbysMode(@Body() dto: SetMockHbysModeDto) {
+    return { mode: await this.mockHbys.setMode(dto.mode) };
+  }
 
   /**
    * Body is intentionally untyped: it stands in for a hospital HL7 payload, and

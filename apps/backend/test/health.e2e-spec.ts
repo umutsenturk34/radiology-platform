@@ -7,6 +7,8 @@ import { loadConfiguration } from '../src/config/configuration';
 import { AppLogger } from '../src/common/logging/app-logger.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
+import { HBYS_QUEUE } from '../src/queues/queue.constants';
+import { HbysDeliveryWorker } from '../src/integrations/hbys/hbys-delivery.worker';
 
 /**
  * PostgreSQL and Redis are stubbed here on purpose.
@@ -56,6 +58,12 @@ async function bootstrapTestApp(options: {
     .useValue(createPrismaStub(options.databaseAlive ?? true))
     .overrideProvider(RedisService)
     .useValue(createRedisStub(options.redisAlive ?? true))
+    // BullMQ needs a real Redis connection; the health suite only exercises
+    // routing and dependency reporting, so the queue and worker are replaced.
+    .overrideProvider(HBYS_QUEUE)
+    .useValue({ add: () => Promise.resolve({ id: 'job' }), close: () => Promise.resolve() })
+    .overrideProvider(HbysDeliveryWorker)
+    .useValue({ onModuleInit: () => undefined, onApplicationShutdown: () => Promise.resolve() })
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });

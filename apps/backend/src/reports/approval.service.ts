@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import {
@@ -23,6 +24,7 @@ import {
 } from '../common/errors/app.exception';
 import { AppLogger } from '../common/logging/app-logger.service';
 import { EmptyReportException } from './report.errors';
+import { HBYS_DELIVERY_JOB, HBYS_QUEUE, type HbysDeliveryJobData } from '../queues/queue.constants';
 import { toReportDto, type ReportDto } from './reports.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -86,6 +88,7 @@ export class ApprovalService {
     private readonly locks: StudyLockService,
     private readonly hospitalScope: HospitalScopeService,
     private readonly audit: AuditService,
+    @Inject(HBYS_QUEUE) private readonly hbysQueue: Queue,
     logger: AppLogger,
   ) {
     this.logger = logger.child(ApprovalService.name);
@@ -395,6 +398,19 @@ export class ApprovalService {
     });
 
     await this.locks.release(studyId, user.id).catch(() => undefined);
+
+    // Queued after the commit: a job for a delivery that was rolled back would
+    // find nothing to send. The delivery row is the durable record, so a job
+    // lost here is recoverable by re-queuing PENDING deliveries.
+    await this.hbysQueue
+      .add(HBYS_DELIVERY_JOB, { deliveryId: result.delivery.id } satisfies HbysDeliveryJobData)
+      .catch((error: unknown) => {
+        this.logger.error({
+          message: 'Could not queue the HBYS delivery; it stays PENDING',
+          deliveryId: result.delivery.id,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      });
 
     this.logger.info({
       message: 'Report finalized',

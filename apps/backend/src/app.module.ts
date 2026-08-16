@@ -13,6 +13,7 @@ import { StorageModule } from './storage/storage.module';
 import { DictationsModule } from './dictations/dictations.module';
 import { ReportsModule } from './reports/reports.module';
 import { StudiesModule } from './studies/studies.module';
+import { QueuesModule } from './queues/queues.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { DevToolsModule } from './dev-tools/dev-tools.module';
 
@@ -42,6 +43,7 @@ import { DevToolsModule } from './dev-tools/dev-tools.module';
     DictationsModule,
     ReportsModule,
     StudiesModule,
+    QueuesModule,
     IntegrationsModule,
     DevToolsModule,
   ],

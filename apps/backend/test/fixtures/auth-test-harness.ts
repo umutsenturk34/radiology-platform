@@ -11,6 +11,8 @@ import { AppLogger } from '../../src/common/logging/app-logger.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { RedisService } from '../../src/redis/redis.service';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../src/storage/object-storage.contract';
+import { HBYS_QUEUE } from '../../src/queues/queue.constants';
+import { HbysDeliveryWorker } from '../../src/integrations/hbys/hbys-delivery.worker';
 import { REFRESH_COOKIE_NAME } from '../../src/auth/auth.constants';
 
 /**
@@ -265,6 +267,7 @@ export function createPrismaStub(
   const reports: Array<Record<string, unknown>> = [];
   const reportVersions: Array<Record<string, unknown>> = [];
   const hbysDeliveries: Array<Record<string, unknown>> = [];
+  const hbysAttempts: Array<Record<string, unknown>> = [];
 
   const withAuthor = (row: Record<string, unknown>) => ({
     ...row,
@@ -352,14 +355,18 @@ export function createPrismaStub(
       },
     },
     hbysDelivery: {
-      findUnique: ({ where }: { where: Record<string, unknown> }) =>
-        Promise.resolve(
-          hbysDeliveries.find((row) =>
-            where.idempotencyKey !== undefined
-              ? row.idempotencyKey === where.idempotencyKey
-              : row.id === where.id,
-          ) ?? null,
-        ),
+      findUnique: ({ where, include }: { where: Record<string, unknown>; include?: unknown }) => {
+        const row = hbysDeliveries.find((entry) =>
+          where.idempotencyKey !== undefined
+            ? entry.idempotencyKey === where.idempotencyKey
+            : entry.id === where.id,
+        );
+        if (!row || !include) return Promise.resolve(row ?? null);
+
+        const version = reportVersions.find((entry) => entry.id === row.reportVersionId);
+        const study = studies.find((entry) => entry.id === row.studyId);
+        return Promise.resolve({ ...row, reportVersion: version, study });
+      },
       findMany: ({ where }: { where?: Record<string, unknown> }) =>
         Promise.resolve(
           hbysDeliveries.filter((row) =>
@@ -381,6 +388,39 @@ export function createPrismaStub(
         if (!row) throw new Error('delivery not found');
         Object.assign(row, data);
         return Promise.resolve(row);
+      },
+      updateMany: ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => { // prettier-ignore
+        const matched = hbysDeliveries.filter((row) =>
+          Object.entries(where).every(([key, value]) => {
+            if (value !== null && typeof value === 'object' && 'in' in value) {
+              return (value.in as unknown[]).includes(row[key]);
+            }
+            return row[key] === value;
+          }),
+        );
+        matched.forEach((row) => Object.assign(row, data));
+        return Promise.resolve({ count: matched.length });
+      },
+    },
+    hbysDeliveryAttempt: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: randomUUID(), startedAt: new Date(), completedAt: null, ...data };
+        hbysAttempts.push(row);
+        return Promise.resolve(row);
+      },
+      findMany: ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: Record<string, 'asc' | 'desc'> }) => { // prettier-ignore
+        let matched = hbysAttempts.filter((row) =>
+          Object.entries(where).every(([key, value]) => row[key] === value),
+        );
+        if (orderBy) {
+          const [field, direction] = Object.entries(orderBy)[0];
+          matched = [...matched].sort((a, b) =>
+            direction === 'desc'
+              ? Number(b[field] ?? 0) - Number(a[field] ?? 0)
+              : Number(a[field] ?? 0) - Number(b[field] ?? 0),
+          );
+        }
+        return Promise.resolve(matched);
       },
     },
     reportVersion: {
@@ -548,7 +588,7 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts };
 }
 
 /**
@@ -608,6 +648,9 @@ export interface TestHarness {
   reports: Array<Record<string, unknown>>;
   reportVersions: Array<Record<string, unknown>>;
   hbysDeliveries: Array<Record<string, unknown>>;
+  hbysAttempts: Array<Record<string, unknown>>;
+  /** Jobs the fake queue received, so enqueueing can be asserted. */
+  queuedJobs: Array<{ name: string; data: unknown }>;
   /** Objects the in-memory storage adapter received, keyed by storage key. */
   storedObjects: Map<string, Buffer>;
   /** Returns the supertest chain (not a promise) so `.expect()` stays usable. */
@@ -636,6 +679,16 @@ export async function createTestHarness(
   const studies = options.studies ?? [];
   const prismaStub = createPrismaStub(users, options.hospitalAccess, studies);
   const storage = createObjectStorageStub();
+  // BullMQ is replaced by a recorder: delivery processing is driven explicitly
+  // in the tests, so retry behaviour is deterministic instead of time-based.
+  const queuedJobs: Array<{ name: string; data: unknown }> = [];
+  const queueStub = {
+    add: (name: string, data: unknown) => {
+      queuedJobs.push({ name, data });
+      return Promise.resolve({ id: 'job-' + queuedJobs.length });
+    },
+    close: () => Promise.resolve(),
+  };
 
   const moduleRef: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
@@ -647,6 +700,10 @@ export async function createTestHarness(
     .useValue(createRedisStub(options.withRedis ?? false))
     .overrideProvider(OBJECT_STORAGE)
     .useValue(storage.adapter)
+    .overrideProvider(HBYS_QUEUE)
+    .useValue(queueStub)
+    .overrideProvider(HbysDeliveryWorker)
+    .useValue({ onModuleInit: () => undefined, onApplicationShutdown: () => Promise.resolve() })
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });
@@ -669,6 +726,8 @@ export async function createTestHarness(
     reports: prismaStub.reports,
     reportVersions: prismaStub.reportVersions,
     hbysDeliveries: prismaStub.hbysDeliveries,
+    hbysAttempts: prismaStub.hbysAttempts,
+    queuedJobs,
     storedObjects: storage.objects,
     login,
     accessTokenFor: async (email: string) => {

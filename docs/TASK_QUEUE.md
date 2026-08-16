@@ -2092,12 +2092,25 @@ finalization sonrası HBYS_PENDING gösteriliyor.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-003
 
 ### Acceptance
 
 test job enqueue/worker çalışıyor.
+
+### Completed
+
+- `src/queues/`: BullMQ `Queue` (`hbys-delivery`) + `HbysDeliveryWorker`
+- Kuyruk ve worker **ayrı Redis bağlantıları** kullanıyor: BullMQ blocking
+  komutlar çalıştırır, uygulamanın paylaşılan client'ını kullansaydı Study
+  kilitleri bloke olurdu. `RedisService.createConnection()` bu bağlantıları
+  açıyor ve shutdown'da kapatıyor
+- Retry programı dokümandaki gibi (30 sn / 2 dk / 5 dk), üstel eğri değil;
+  `HBYS_RETRY_DELAYS_MS` ile yapılandırılabilir. Attempt sayısı = gecikme
+  sayısı + 1
+- Job geçmişi sınırlı (`removeOnComplete: 100`); kalıcı kayıt PostgreSQL'deki
+  `HbysDeliveryAttempt` satırlarıdır, job değil
 
 ---
 
@@ -2136,12 +2149,21 @@ migration başarılı.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-034
 
 ### Acceptance
 
 normalized send contract var.
+
+### Completed
+
+- `src/integrations/contracts/hbys.contract.ts`: `HbysAdapter`,
+  `NormalizedHbysReport`, `HbysDeliverySuccess` / `HbysDeliveryFailure`
+- `retryable` bayrağı adapter'dan gelir (INTEGRATIONS section 40): timeout ve
+  5xx yeniden denenir, kalıcı red denenmez
+- Core servis hastane transport/auth detayını bilmez; credential core'a
+  ulaşmaz (section 49)
 
 ---
 
@@ -2149,7 +2171,7 @@ normalized send contract var.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-035
 
 ### Modes
@@ -2162,13 +2184,24 @@ normalized send contract var.
 
 üç mode deterministic test edilebiliyor.
 
+### Completed
+
+- `MockHbysAdapter` — SUCCESS / FAIL / TIMEOUT, **rastgelelik yok**
+  (CLAUDE.md section 27)
+- Mod Redis'te tutuluyor, böylece istek ile worker aynı modu görür
+- `SUCCESS` → `externalReportId` idempotency key'den türetilir; aynı teslimat
+  hep aynı id'yi bildirir
+- `FAIL` → `retryable: false` (kalıcı red yeniden denenmez)
+- `TIMEOUT` → yapılandırılabilir gecikme + `retryable: true`
+- `PUT /dev-tools/mock-hbys` ile mod değiştirilir (MANAGER + DEV_TOOLS_ENABLED)
+
 ---
 
 ## BACKEND-037 — HBYS Delivery Worker
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-033, BACKEND-034, BACKEND-036, BACKEND-032
 
 ### Acceptance
@@ -2179,13 +2212,44 @@ normalized send contract var.
 - failure retry
 - exhausted → HBYS_FAILED
 
+### Completed
+
+- Finalize → job enqueue (commit sonrası); worker `HbysDeliveryService`
+  üzerinden gönderir
+- Her deneme `HbysDeliveryAttempt` olarak kaydedilir; yalnızca metadata,
+  istek/yanıt gövdesi saklanmaz
+- SUCCESS → delivery SENT + `externalReportId`, Study `HBYS_SENT`
+- Retryable hata + bütçe varsa → delivery PENDING'e döner, BullMQ yeniden dener
+- Bütçe bittiğinde veya kalıcı hatada → delivery FAILED, Study `HBYS_FAILED`,
+  audit yazılır. Hata **gizlenmez** (CLAUDE.md section 25)
+- Çift gönderim koruması: `claim()` atomik bir koşullu update
+  (PENDING/FAILED → PROCESSING). Zaten gönderilmiş bir teslimat için gelen
+  ikinci job hiçbir şey yapmaz
+
+### Canlı testte bulunan ve düzeltilen iki hata
+
+1. **Sabit `jobId`** — job id'si delivery id'sine sabitlenmişti. BullMQ
+   tamamlanmış job'u geçmişte tuttuğu için aynı id ile eklenen manuel retry
+   job'u **sessizce yok sayılıyordu** ve retry hiç çalışmıyordu. Job id artık
+   BullMQ'ya bırakıldı; çift işlemeyi zaten `claim()` engelliyor.
+2. **Attempt numarası kuyruktan alınıyordu** — manuel retry yeni bir job
+   başlattığı için sayaç 1'e dönüyor ve
+   `(deliveryId, attemptNumber)` unique kısıtını ihlal ediyordu; teslimat
+   `PROCESSING`'de takılı kalıyordu. Artık kalıcı numara delivery'nin kendi
+   sayacından geliyor; kuyruk sayacı yalnızca "yeni otomatik deneme var mı"
+   kararında kullanılıyor (manuel retry'a taze bütçe verir).
+3. Ek sağlamlık: gönderim sonrası beklenmedik hata olursa claim geri alınır
+   (bütçe varsa PENDING, yoksa FAILED). Aksi halde teslimat kalıcı olarak
+   `PROCESSING`'de kalır, hiçbir şey onu alamaz ve Study sessizce
+   `HBYS_PENDING`'de asılı kalırdı.
+
 ---
 
 ## BACKEND-038 — Manual HBYS Retry
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-037
 
 ### Endpoint
@@ -2198,6 +2262,32 @@ POST `/hbys-deliveries/:id/retry`
 - reason
 - new attempt
 - HBYS_PENDING
+
+### Completed
+
+- `POST /hbys-deliveries/:id/retry` — OPERATION / MANAGER, `reason` zorunlu
+- Yalnızca `FAILED` teslimat yeniden denenebilir; gönderilmiş teslimat için
+  `409 HBYS_NOT_RETRYABLE` (aksi halde rapor hastanede mükerrer olurdu)
+- Önceki denemeler korunur, rapor versiyonu değişmez; Study `HBYS_PENDING`'e
+  döner ve yeni job kuyruğa girer
+- `GET /studies/:id/hbys-deliveries` — hastane kapsamı olan her rol görebilir
+- `GET /hbys-deliveries/:id/attempts` — OPERATION / MANAGER, rapor içeriği yok
+
+### Canlı doğrulama (Railway + gerçek BullMQ worker)
+
+```text
+A) SUCCESS  finalize -> HBYS_PENDING, worker -> HBYS_SENT
+            delivery SENT, 1 deneme, externalReportId dolu
+B) FAIL     1 deneme, retry yok -> HBYS_FAILED
+            attempts: 1:FAILED:MOCK_HBYS_REJECTED
+C) RETRY    doctor 403 | operation 200
+            -> HBYS_SENT, attempts: 1:FAILED, 2:SENT (geçmiş korundu)
+D) TIMEOUT  4 deneme (1 + 3 otomatik retry) -> HBYS_FAILED
+            attempts: 1..4 hepsi MOCK_HBYS_TIMEOUT
+```
+
+Bu, CLAUDE.md section 60'taki zorunlu hata yolunun tamamıdır:
+`FAIL -> retry -> HBYS_FAILED -> manual retry -> HBYS_SENT`.
 
 ---
 

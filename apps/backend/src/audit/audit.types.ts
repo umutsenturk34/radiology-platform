@@ -44,6 +44,9 @@ export const AuditEventType = {
 
   // hbys
   HBYS_DELIVERY_QUEUED: 'HBYS_DELIVERY_QUEUED',
+  HBYS_DELIVERY_SENT: 'HBYS_DELIVERY_SENT',
+  HBYS_DELIVERY_FAILED: 'HBYS_DELIVERY_FAILED',
+  HBYS_MANUAL_RETRY: 'HBYS_MANUAL_RETRY',
 } as const;
 
 export type AuditEventType = (typeof AuditEventType)[keyof typeof AuditEventType];

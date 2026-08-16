@@ -34,6 +34,7 @@
     "@node-rs/argon2": "^2.1.0",
     "@prisma/client": "^6.19.3",
     "@radiology/shared": "workspace:*",
+    "bullmq": "^6.1.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "cookie-parser": "^1.4.7",

@@ -18,6 +18,8 @@ import { AppLogger } from '../common/logging/app-logger.service';
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger: AppLogger;
   private client: Redis | null = null;
+  /** Connections handed to BullMQ, closed together with the shared client. */
+  private extraConnections: Redis[] = [];
 
   constructor(
     private readonly config: ConfigService,
@@ -48,10 +50,44 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    for (const connection of this.extraConnections) {
+      await connection.quit().catch(() => connection.disconnect());
+    }
+    this.extraConnections = [];
+
     if (this.client) {
       await this.client.quit().catch(() => this.client?.disconnect());
       this.client = null;
     }
+  }
+
+  /**
+   * Creates an additional connection with the same settings.
+   *
+   * BullMQ workers issue blocking commands, which would stall every other user
+   * of a shared connection — including the study locks. They therefore get
+   * their own connection rather than the shared client.
+   */
+  createConnection(purpose: string): Redis {
+    const url = this.config.get<string>('REDIS_URL');
+    if (!url) {
+      throw new Error('REDIS_URL is not configured; cannot open a Redis connection.');
+    }
+
+    const connection = new Redis(url, { ...buildOptions(), lazyConnect: false });
+
+    connection.on('error', (error: Error) => {
+      this.logger.error({
+        message: 'Redis connection error',
+        purpose,
+        reason: error.message,
+      });
+    });
+
+    this.extraConnections.push(connection);
+    this.logger.info({ message: 'Additional Redis connection opened', purpose });
+
+    return connection;
   }
 
   /**
