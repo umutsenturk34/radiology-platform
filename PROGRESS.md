@@ -10,12 +10,12 @@
 
 # 1. CURRENT PILOT STATUS
 
-**Overall Status:** IN DEVELOPMENT — full backend clinical chain live against Railway  
+**Overall Status:** IN DEVELOPMENT — backend DEPLOYED on Railway, reachable by the frontend  
 **Pilot Release:** NOT READY  
 **Current Version:** pre-v0.1.0-pilot  
-**Environment:** Local backend + Railway PostgreSQL/Redis (production environment)  
-**Deployment:** Backend not deployed yet; databases provisioned  
-**Last Updated:** 2026-08-16 (Claude / backend)
+**Environment:** Backend deployed on Railway (production environment) + Railway PostgreSQL/Redis  
+**Deployment:** Backend live at https://backend-production-b2b6.up.railway.app  
+**Last Updated:** 2026-08-18 (Claude / backend)
 
 Ana hedef:
 
@@ -209,6 +209,9 @@ BACKEND-035 HBYS adapter contract              DONE  (b694dcf)
 BACKEND-036 Mock HBYS adapter                  DONE  (b694dcf)
 BACKEND-037 HBYS delivery worker               DONE  (b694dcf)
 BACKEND-038 Manual HBYS retry                  DONE  (b694dcf)
+DEVOPS-001  Backend Railway preparation        DONE  (93c72db)
+DEVOPS-002  Railway PostgreSQL                 DONE  (93c72db)
+DEVOPS-003  Railway Redis                      DONE  (93c72db)
 ```
 
 ## Backend Blockers
@@ -255,6 +258,22 @@ metadata and is not returned by GET /studies/:id (DISCOVERED-003).
 
 StudyDetail does not yet carry lock / pacs / derived SLA state / flags —
 their models do not exist yet (DISCOVERED-004).
+
+The deployed pilot runs with DEV_TOOLS_ENABLED=true. That is deliberate — the
+health team tests the workflow through the mock HL7 and HBYS endpoints, and the
+database holds test data only — but it MUST be set to false before any real
+patient data reaches this environment (API_CONTRACT section 93).
+
+FRONTEND_URL on the deployed service currently allows http://localhost:3000
+only. It must be updated when the frontend lands on Vercel (DEVOPS-005),
+otherwise the browser will refuse the cross-origin auth requests.
+
+Dictation audio on the deployed service is written to a container directory and
+does NOT survive a redeploy (DEVOPS-004 is still open).
+
+The seeded accounts were rotated off the development fallback password when the
+service became internet-reachable. The current password is stored only as the
+SEED_DEFAULT_PASSWORD variable on the Railway backend service.
 ```
 
 ## Backend Infrastructure Notes
@@ -277,47 +296,39 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-BACKEND-055 — Workflow Unit Tests (not claimed yet)
+None claimed. The backend is deployed and the frontend is unblocked.
 
 Current State:
-The complete pilot clinical chain runs against the real Railway services:
-  First HL7 -> Second HL7 -> Images Available -> UNREAD
-  -> READING (doctor lock) -> dictation recorded + uploaded
-  -> WAITING_TRANSCRIPTION -> TRANSCRIBING (reporter lock)
-  -> report submitted -> WAITING_APPROVAL
-  -> doctor final approval -> FINAL -> HBYS_PENDING -> HBYS_SENT
-The failure path is verified too: FAIL and TIMEOUT both end in HBYS_FAILED,
-and an Operation manual retry takes it to HBYS_SENT with the earlier attempts
-preserved.
+The backend runs on Railway and is reachable at
+  https://backend-production-b2b6.up.railway.app/api/v1
+Auth (login / me / refresh / logout) and the complete clinical chain through
+HBYS_SENT were verified against that public URL. Local suites are unchanged:
+303 unit and 245 e2e tests pass.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 300 PASS, e2e tests 245 PASS
+backend unit tests 303 PASS, e2e tests 245 PASS
+deployed auth + clinical smoke checks    -> PASS
 
 Current Problem:
-None. Work paused at a green, committed checkpoint (b694dcf).
+None.
 
 Next Action:
-1. BACKEND-055/056/057/058 are the remaining P0 tasks. Much of what they ask
-   for already exists (workflow table tests, permission tests across the e2e
-   suites, HL7 duplicate/mismatch tests, HBYS success/fail/timeout/retry), so
-   the work is mostly to check each listed case against the suites and add
-   whatever is genuinely missing rather than duplicating coverage.
-2. Then the P1 block: BACKEND-039 SLA engine, BACKEND-041 information notes,
-   BACKEND-042/043/044 special workflow states, BACKEND-045 realtime,
-   BACKEND-046/047 manager APIs, BACKEND-019/020 PACS.
-3. DEVOPS-004 (a real object storage bucket) is still open; the pilot writes
-   dictation audio to a local directory that does not survive a redeploy.
+1. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL on
+   the Railway backend service and redeploy. CORS is an explicit allowlist,
+   so a missing origin fails the browser request, not the server.
+2. DEVOPS-004: provision a real object storage bucket. Dictation audio
+   currently lives in the container and is lost on redeploy.
+3. Remaining P0 backend work is the test tasks BACKEND-055..058; most of what
+   they list is already covered by the existing suites, so the work is to
+   check each case and add only what is genuinely missing.
+4. Turn DEV_TOOLS_ENABLED off before any real patient data.
 
-Local run notes:
-- Start: cd apps/backend && node dist/main.js  (reads apps/backend/.env)
-- Before restarting, make sure the old process is gone and give the Railway
-  connections a few seconds to drain, otherwise Prisma fails with P2024.
-- The local .env raises DATABASE_TRANSACTION_TIMEOUT_MS to 45000: finalize is
-  a ~15 statement transaction and the proxy round trip is about a second.
-  It also shortens HBYS_RETRY_DELAYS_MS so the retry path is observable.
-- Seed accounts: doctor, doctor2, reporter, reporter2, operation, manager
-  (all @test.local, one shared dev password).
+Deployment notes:
+- Redeploy: railway up --service backend  (or railway redeploy --service backend)
+- Logs:     railway logs --service backend
+- Variables live on the Railway service; secrets are not in the repository.
+- The seed rotates passwords only with SEED_FORCE_PASSWORD_RESET=true.
 ```
 
 ---
@@ -681,7 +692,19 @@ Vercel: NOT DEPLOYED
 ## Backend
 
 ```text
-Railway: NOT DEPLOYED (runs locally against Railway databases)
+Railway: DEPLOYED — service `backend` in strong-courtesy / production
+
+Public API base URL (frontend uses this):
+  https://backend-production-b2b6.up.railway.app/api/v1
+
+Health: https://backend-production-b2b6.up.railway.app/api/v1/health
+Build:  Dockerfile at the repo root (pnpm workspace, single stage)
+Start:  prisma migrate deploy && node dist/main.js
+Port:   PORT=3001 pinned, and the Railway domain targets 3001
+
+DATABASE_URL and REDIS_URL are Railway service references, so the backend
+reaches both over the private network: health reports 1ms for each, against
+250-1600ms through the developer TCP proxy.
 ```
 
 ## PostgreSQL
@@ -707,7 +730,9 @@ NOT CONFIGURED
 ## Pilot URL
 
 ```text
-None
+Backend API:    https://backend-production-b2b6.up.railway.app/api/v1
+Backend health: https://backend-production-b2b6.up.railway.app/api/v1/health
+Frontend:       not deployed yet (DEVOPS-005)
 ```
 
 ---
@@ -723,7 +748,7 @@ Measured on 2026-08-15 (backend):
 ```text
 Lint: PASS
 Typecheck: PASS
-Backend Unit Tests: 300 PASS / 0 FAIL
+Backend Unit Tests: 303 PASS / 0 FAIL
 Backend E2E Tests: 245 PASS / 0 FAIL
 Backend Build: PASS
 Integration Tests: NOT_RUN (no test database yet)
@@ -741,6 +766,30 @@ GET /api/v1/health -> 200, database up (255ms), redis up (248ms)
 Redis PING -> PONG on Redis 8.2.8
 Unreachable database -> structured error + exit code 1, no credential logged
 Unreachable Redis -> fails closed, process exits
+```
+
+Deployed pilot verification (public URL, 2026-08-18):
+
+```text
+GET /api/v1/health                    -> 200, appEnv=pilot, db up 1ms, redis up 1ms
+login doctor/reporter/operation/manager -> 200, correct role, no refreshToken in body
+wrong password vs unknown email       -> 401, byte-identical bodies
+refresh cookie flags                  -> HttpOnly; Secure; SameSite=None; Path=/api/v1/auth
+GET /auth/me                          -> 200, hospitals [TEST_HOSPITAL], no passwordHash
+GET /auth/me without token            -> 401
+POST /auth/refresh                    -> 200, cookie rotated; replayed old cookie 401
+POST /auth/logout                     -> 204; refresh 401 and the access token 401 at once
+CORS preflight from localhost:3000    -> allow-origin localhost:3000, credentials true
+
+Full clinical chain on the deployed instance (one study):
+  first HL7 -> WAITING_ACCEPTANCE       second doctor start-reading -> 423
+  second HL7 -> IMAGES_PENDING          reporter finalize          -> 403
+  images available -> UNREAD            finalize -> HBYS_PENDING
+  start-reading -> READING              worker  -> HBYS_SENT
+  dictation upload -> COMPLETED         delivery SENT, 1 attempt, external id set
+  complete-reading -> WAITING_TRANSCRIPTION
+  start-transcription -> TRANSCRIBING
+  submit-report -> WAITING_APPROVAL
 ```
 
 Live seed + auth verification (real Railway database, 2026-08-15):

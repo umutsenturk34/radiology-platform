@@ -3041,7 +3041,7 @@ READING
 
 **Owner:** DEVOPS  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** main backend P0 tasks
 
 ### Acceptance
@@ -3051,18 +3051,53 @@ READING
 - health endpoint
 - env documentation
 
+### Completed
+
+- `Dockerfile` + `.dockerignore` repo kökünde; pnpm workspace'i derleyip
+  `apps/backend` uygulamasını çalıştırıyor
+- Tek aşamalı image **bilerek**: `@node-rs/argon2` ve Prisma query engine
+  native; çalıştıkları image'da derlenmeleri platform uyuşmazlığı sınıfını
+  tamamen ortadan kaldırıyor. Pilot için daha büyük image doğru takas
+- Railway `strong-courtesy / production` projesinde `backend` servisi
+- Public URL: `https://backend-production-b2b6.up.railway.app`
+  (`/api/v1` prefix'i ile)
+- `PORT=3001` servis değişkeni ile sabitlendi ve domain aynı portu hedefliyor.
+  İlk deploy'da Railway `PORT=8080` enjekte ettiği için uygulama 8080'de
+  dinliyordu ve domain'e ulaşılamıyordu — değişken eklenip yeniden deploy edildi
+- Env'ler Railway servis değişkeni olarak ayarlandı; secret'lar üretilip
+  doğrudan aktarıldı, hiçbir çıktıya yazılmadı
+
+### Acceptance doğrulaması
+
+```text
+production build   PASS (Railway image build)
+start command      `prisma migrate deploy && node dist/main.js`
+health endpoint    GET /api/v1/health -> 200, appEnv=pilot
+env documentation  apps/backend/.env.example (Railway notu eklendi)
+```
+
 ---
 
 ## DEVOPS-002 — Railway PostgreSQL
 
 **Owner:** DEVOPS  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** DEVOPS-001
 
 ### Acceptance
 
 migration Railway üzerinde çalışıyor.
+
+### Completed
+
+- `DATABASE_URL=${{Postgres.DATABASE_URL}}` — Railway servis referansı, private
+  network. TCP proxy ve `sslmode` gerekmiyor
+- Migration container start'ında `prisma migrate deploy` ile çalışıyor
+  (yalnızca bekleyen migration'ları uygular; reset/drop yapmaz)
+- Deploy logu: `4 migrations found in prisma/migrations` /
+  `No pending migrations to apply` — şema zaten güncel
+- Health: `database: up, latencyMs: 1` (proxy üzerinden bu değer 250-1600 ms idi)
 
 ---
 
@@ -3070,12 +3105,22 @@ migration Railway üzerinde çalışıyor.
 
 **Owner:** DEVOPS  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** DEVOPS-001
 
 ### Acceptance
 
 lock + BullMQ remote Redis üzerinde çalışıyor.
+
+### Completed
+
+- `REDIS_URL=${{Redis.REDIS_URL}}` — private network
+- Study lock ve BullMQ aynı Redis'i kullanıyor, ayrı bağlantılarla
+  (`bullmq-queue`, `bullmq-worker`) — worker'ın blocking komutları kilitleri
+  bloke etmiyor
+- Health: `redis: up, latencyMs: 1`
+- Canlı doğrulama: ikinci doktor `423 STUDY_LOCKED`, HBYS worker teslimatı
+  otomatik gönderdi (`HBYS_SENT`)
 
 ---
 
