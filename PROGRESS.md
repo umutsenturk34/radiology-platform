@@ -327,13 +327,14 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-NOT STARTED
+IN PROGRESS — FRONTEND-002 ve FRONTEND-003 gerçek backend auth doğrulamasını bekliyor.
 ```
 
 ## Current Frontend Task
 
 ```text
-None claimed yet.
+FRONTEND-002 — API Client Foundation
+FRONTEND-003 — Authentication UI
 ```
 
 ## Next Recommended Frontend Task
@@ -351,19 +352,22 @@ after required workspace dependency is available.
 ## Recently Completed Frontend Tasks
 
 ```text
-None yet.
+FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
 ```
 
 ## Frontend Blockers
 
 ```text
-None currently known.
+Canlı auth acceptance testi için backend API erişimi gerekli. Bu çalışma ortamında
+apps/backend/.env ile DATABASE_URL, REDIS_URL, JWT_SECRET ve JWT_REFRESH_SECRET
+yok; localhost:3001 üzerinde backend çalışmıyor ve backend henüz deploy edilmedi.
 ```
 
 ## Frontend Known Issues
 
 ```text
-None yet.
+Next.js production build, kök ESLint yapılandırmasında Next eklentisi algılanmadığına
+dair bilgilendirici bir uyarı yayımlıyor; lint/typecheck/build yine de başarılı.
 ```
 
 ## Frontend Resume Pointer
@@ -375,7 +379,8 @@ docs/TASK_QUEUE.md
 docs/FRONTEND.md
 
 Then:
-Claim highest-priority available FRONTEND task whose dependencies are satisfied.
+BACKEND-006 erişilebilir olduğunda seed kullanıcılarıyla login, /auth/me, refresh
+rotation ve logout akışını doğrula; ardından FRONTEND-002 ve FRONTEND-003'ü DONE yap.
 ```
 
 ---

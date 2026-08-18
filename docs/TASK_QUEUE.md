@@ -727,7 +727,8 @@ Veritabanında henüz Study kaydı yok (HL7 BACKEND-011'de geliyor), bu yüzden
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
+
 **Depends On:** FRONTEND-002, BACKEND-006
 
 ### Yapılacaklar

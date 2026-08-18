@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { ApiClientError } from "@/lib/api";
 import { login } from "@/features/auth/api";
+import { useAuthStore } from "@/features/auth/auth-store";
 
 const destinationByRole = {
   DOCTOR: "/doctor/studies",
@@ -15,6 +16,7 @@ const destinationByRole = {
 
 export function LoginForm() {
   const router = useRouter();
+  const setUser = useAuthStore((state) => state.setUser);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
@@ -27,6 +29,7 @@ export function LoginForm() {
 
     try {
       const user = await login({ email, password });
+      setUser(user);
       router.replace(destinationByRole[user.role]);
     } catch (cause) {
       if (cause instanceof ApiClientError) {
