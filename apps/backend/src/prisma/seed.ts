@@ -102,6 +102,19 @@ export function resolveSeedPassword(env: NodeJS.ProcessEnv = process.env): strin
   return DEV_FALLBACK_PASSWORD;
 }
 
+/**
+ * Opt-in credential rotation.
+ *
+ * The seed never resets an existing password by default, so re-seeding an
+ * environment cannot silently invalidate credentials someone is using. Rotation
+ * is a separate, deliberate action — needed when the pilot becomes reachable
+ * from the internet and the accounts still carry the development fallback
+ * password, which is published in this repository.
+ */
+export function shouldResetPasswords(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.SEED_FORCE_PASSWORD_RESET?.trim().toLowerCase() === 'true';
+}
+
 export interface SeedResult {
   hospitalId: string;
   userIds: string[];
@@ -111,6 +124,7 @@ export interface SeedResult {
 export async function seedDatabase(
   prisma: Pick<PrismaClient, 'hospital' | 'user' | 'userHospitalAccess' | 'slaPolicy'>,
   passwordHash: string,
+  options: { resetPasswords?: boolean } = {},
 ): Promise<SeedResult> {
   const hospital = await prisma.hospital.upsert({
     where: { code: TEST_HOSPITAL_CODE },
@@ -129,14 +143,16 @@ export async function seedDatabase(
   for (const seedUser of SEED_USERS) {
     const user = await prisma.user.upsert({
       where: { email: seedUser.email },
-      // Password is intentionally not reset on re-run: re-seeding an existing
-      // environment must not silently change credentials already in use.
+      // Password is not reset on re-run unless rotation was explicitly asked
+      // for: re-seeding an existing environment must not silently change
+      // credentials already in use.
       update: {
         username: seedUser.username,
         firstName: seedUser.firstName,
         lastName: seedUser.lastName,
         role: seedUser.role,
         status: 'ACTIVE',
+        ...(options.resetPasswords ? { passwordHash } : {}),
       },
       create: {
         email: seedUser.email,
@@ -195,7 +211,8 @@ async function main(): Promise<void> {
   try {
     const password = resolveSeedPassword();
     const passwordHash = await hash(password);
-    const result = await seedDatabase(prisma, passwordHash);
+    const resetPasswords = shouldResetPasswords();
+    const result = await seedDatabase(prisma, passwordHash, { resetPasswords });
 
     // The password itself is never printed.
     process.stdout.write(
@@ -204,6 +221,7 @@ async function main(): Promise<void> {
         hospital: TEST_HOSPITAL_CODE,
         users: result.userIds.length,
         slaPolicies: result.slaPolicyIds.length,
+        passwordsReset: resetPasswords,
         passwordSource: process.env.SEED_DEFAULT_PASSWORD
           ? 'SEED_DEFAULT_PASSWORD'
           : 'development fallback (see .env.example)',

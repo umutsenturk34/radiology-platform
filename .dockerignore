@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/.turbo
+
+# Never ship local secrets or pilot audio into the image.
+**/.env
+**/.env.local
+**/.storage
+
+.git
+.github
+docs
+*.md

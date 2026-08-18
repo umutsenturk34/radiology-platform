@@ -1,4 +1,4 @@
-import { resolveSeedPassword, seedDatabase, seedConstants } from './seed';
+import { resolveSeedPassword, seedDatabase, seedConstants, shouldResetPasswords } from './seed';
 
 /**
  * In-memory stand-in for the four Prisma delegates the seed touches. It models
@@ -183,6 +183,31 @@ describe('seedDatabase', () => {
     for (const user of tables.users) {
       expect(user.passwordHash).toBe('original-hash');
     }
+  });
+
+  it('rotates passwords only when rotation is explicitly requested', async () => {
+    const { prisma, tables } = createFakePrisma();
+
+    await seedDatabase(prisma as never, 'original-hash');
+    await seedDatabase(prisma as never, 'rotated-hash', { resetPasswords: true });
+
+    for (const user of tables.users) {
+      expect(user.passwordHash).toBe('rotated-hash');
+    }
+  });
+});
+
+describe('shouldResetPasswords', () => {
+  it('is off unless the flag says otherwise', () => {
+    expect(shouldResetPasswords({})).toBe(false);
+    expect(shouldResetPasswords({ SEED_FORCE_PASSWORD_RESET: 'false' })).toBe(false);
+    // Anything other than an explicit "true" leaves credentials alone.
+    expect(shouldResetPasswords({ SEED_FORCE_PASSWORD_RESET: '1' })).toBe(false);
+  });
+
+  it('is on for an explicit true', () => {
+    expect(shouldResetPasswords({ SEED_FORCE_PASSWORD_RESET: 'true' })).toBe(true);
+    expect(shouldResetPasswords({ SEED_FORCE_PASSWORD_RESET: ' TRUE ' })).toBe(true);
   });
 
   it('seeds only the SLA categories whose durations are specified', async () => {
