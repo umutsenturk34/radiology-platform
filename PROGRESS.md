@@ -327,7 +327,7 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-IN PROGRESS — FRONTEND-002 ve FRONTEND-003 gerçek backend auth doğrulamasını bekliyor.
+IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-005 canlı Railway API doğrulamasını bekliyor.
 ```
 
 ## Current Frontend Task
@@ -335,6 +335,7 @@ IN PROGRESS — FRONTEND-002 ve FRONTEND-003 gerçek backend auth doğrulamasın
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
+FRONTEND-005 — Study List Foundation
 ```
 
 ## Next Recommended Frontend Task
@@ -358,9 +359,9 @@ FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
 ## Frontend Blockers
 
 ```text
-Canlı auth acceptance testi için backend API erişimi gerekli. Bu çalışma ortamında
-apps/backend/.env ile DATABASE_URL, REDIS_URL, JWT_SECRET ve JWT_REFRESH_SECRET
-yok; localhost:3001 üzerinde backend çalışmıyor ve backend henüz deploy edilmedi.
+Canlı acceptance testi için Railway API'nin gerçek public base URL'si gerekli.
+Bu değer repo veya environment'ta yok; dokümandaki örnek URL health isteğinde
+Railway `Application not found` (404 fallback) dönüyor.
 ```
 
 ## Frontend Known Issues
@@ -368,6 +369,8 @@ yok; localhost:3001 üzerinde backend çalışmıyor ve backend henüz deploy ed
 ```text
 Next.js production build, kök ESLint yapılandırmasında Next eklentisi algılanmadığına
 dair bilgilendirici bir uyarı yayımlıyor; lint/typecheck/build yine de başarılı.
+`* 2.*` adlı kullanıcı dosyaları TypeScript'in `.next` generated tipleriyle çakışıyordu;
+silinmeden `tsconfig.json` exclude listesine eklendi.
 ```
 
 ## Frontend Resume Pointer
@@ -379,8 +382,9 @@ docs/TASK_QUEUE.md
 docs/FRONTEND.md
 
 Then:
-BACKEND-006 erişilebilir olduğunda seed kullanıcılarıyla login, /auth/me, refresh
-rotation ve logout akışını doğrula; ardından FRONTEND-002 ve FRONTEND-003'ü DONE yap.
+Gerçek `NEXT_PUBLIC_API_URL` ile seed kullanıcılarıyla login, /auth/me, refresh
+rotation, logout ve Doctor `GET /studies` akışını doğrula; ardından FRONTEND-002,
+FRONTEND-003 ve FRONTEND-005'i acceptance'a göre güncelle.
 ```
 
 ---

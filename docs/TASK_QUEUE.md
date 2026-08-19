@@ -1075,7 +1075,8 @@ doktor GET /studies?pool=UNREAD               -> Study listede görünüyor
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
+
 **Depends On:** FRONTEND-004, BACKEND-009
 
 ### Gösterilecek

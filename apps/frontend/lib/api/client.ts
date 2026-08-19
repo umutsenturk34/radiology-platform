@@ -3,6 +3,7 @@ import {
   isApiErrorResponse,
   type ApiError,
   type ApiResponse,
+  type PaginatedResponse,
 } from "@radiology/shared";
 
 const REFRESH_PATH = "/auth/refresh";
@@ -86,6 +87,20 @@ function unwrapResponse<T>(body: unknown): T {
   return (body as ApiResponse<T>).data;
 }
 
+function unwrapPaginatedResponse<T>(body: unknown): PaginatedResponse<T> {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("data" in body) ||
+    !("meta" in body) ||
+    !Array.isArray((body as { data: unknown }).data)
+  ) {
+    throw new ApiClientError(ApiErrorCode.INTERNAL_ERROR, "Sunucu yanıtı liste API sözleşmesiyle uyumlu değil.");
+  }
+
+  return body as PaginatedResponse<T>;
+}
+
 export class ApiClient {
   private accessToken?: string;
   private refreshInFlight?: Promise<boolean>;
@@ -111,6 +126,15 @@ export class ApiClient {
 
   get<T>(path: string, options?: Omit<ApiRequestOptions, "body">) {
     return this.request<T>(path, { ...options, method: "GET" });
+  }
+
+  getPaginated<T>(path: string, options?: Omit<ApiRequestOptions, "body">) {
+    return this.performRequest<PaginatedResponse<T>>(
+      path,
+      { ...options, method: "GET" },
+      options?.retryAfterRefresh ?? true,
+      unwrapPaginatedResponse<T>,
+    );
   }
 
   post<T>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, "body">) {
@@ -142,6 +166,7 @@ export class ApiClient {
     path: string,
     options: ApiRequestOptions & { method: string },
     retryAfterRefresh: boolean,
+    unwrap: (body: unknown) => T = unwrapResponse<T>,
   ): Promise<T> {
     let response: Response;
 
@@ -171,7 +196,7 @@ export class ApiClient {
       if (response.status === 401 && retryAfterRefresh && path !== REFRESH_PATH) {
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
-          return this.performRequest<T>(path, options, false);
+          return this.performRequest<T>(path, options, false, unwrap);
         }
       }
 
@@ -182,7 +207,7 @@ export class ApiClient {
       return undefined as T;
     }
 
-    return unwrapResponse<T>(body);
+    return unwrap(body);
   }
 
   private async refreshAccessToken() {
