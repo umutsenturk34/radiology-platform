@@ -264,12 +264,20 @@ health team tests the workflow through the mock HL7 and HBYS endpoints, and the
 database holds test data only — but it MUST be set to false before any real
 patient data reaches this environment (API_CONTRACT section 93).
 
-FRONTEND_URL on the deployed service allows http://localhost:3000 and
-http://localhost:3001 (the Next dev server had picked 3001, and the missing
-origin made every browser call fail even though the server answered 200 — the
-response was blocked client side). It must be extended when the frontend lands
-on Vercel (DEVOPS-005): CORS is an explicit allowlist, so an origin that is not
-listed fails in the browser, not on the server.
+FRONTEND_URL on the deployed service allows all four local dev origins:
+http://localhost:3000, http://localhost:3001, http://127.0.0.1:3000 and
+http://127.0.0.1:3001.
+
+Two separate mismatches broke the frontend login while the API itself was fine,
+and both looked identical from the browser: the server answered 200 and the
+browser discarded the response because no Access-Control-Allow-Origin came
+back. First the Next dev server had picked port 3001 while only 3000 was
+listed; then the tab was open on 127.0.0.1, which is a different origin from
+localhost no matter that it is the same host.
+
+It must be extended again when the frontend lands on Vercel (DEVOPS-005): CORS
+is an explicit allowlist, and a missing origin fails in the browser, not on the
+server, so it does not show up in backend logs as an error.
 
 Dictation audio on the deployed service is written to a container directory and
 does NOT survive a redeploy (DEVOPS-004 is still open).
