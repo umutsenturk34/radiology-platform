@@ -48,7 +48,7 @@ export function LoginForm() {
         setError(
           cause.code === "INVALID_CREDENTIALS"
             ? "E-posta veya parola hatalı."
-            : "Oturum açılamadı. Lütfen tekrar deneyin.",
+            : cause.message,
         );
       } else {
         setError("Oturum açılamadı. Lütfen tekrar deneyin.");

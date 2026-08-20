@@ -1,10 +1,14 @@
-import { ApiClient } from "./client";
+import { ApiClient, ApiClientError } from "./client";
+import { ApiErrorCode } from "@radiology/shared";
 
 function getApiBaseUrl() {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
   if (!baseUrl) {
-    throw new Error("NEXT_PUBLIC_API_URL yapılandırılmadı.");
+    throw new ApiClientError(
+      ApiErrorCode.SERVICE_UNAVAILABLE,
+      "Frontend API adresi yapılandırılmadı. Dev server'ı yeniden başlatın.",
+    );
   }
 
   return baseUrl;
