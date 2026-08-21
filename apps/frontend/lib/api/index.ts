@@ -1,17 +1,10 @@
-import { ApiClient, ApiClientError } from "./client";
-import { ApiErrorCode } from "@radiology/shared";
+import { ApiClient } from "./client";
 
 function getApiBaseUrl() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-
-  if (!baseUrl) {
-    throw new ApiClientError(
-      ApiErrorCode.SERVICE_UNAVAILABLE,
-      "Frontend API adresi yapılandırılmadı. Dev server'ı yeniden başlatın.",
-    );
-  }
-
-  return baseUrl;
+  // Browser requests stay same-origin. Next.js rewrites this path to the real
+  // API URL, which is configured server-side with API_URL (or the existing
+  // NEXT_PUBLIC_API_URL compatibility fallback).
+  return "/api/v1";
 }
 
 /**
