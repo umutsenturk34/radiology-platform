@@ -334,6 +334,9 @@ doğrulandı. FRONTEND-005 operasyonel havuz görünümü; gerçek kategori, has
 durum ve arama parametreleri ile sayfalama içeriyor. Backend desteklemediği için
 modality filtresi veya kategori/havuz sayacı üretilmedi. FRONTEND-004 bağımlılığı
 ve yeni filtrelerin canlı kabulü tamamlanmadan FRONTEND-005 DONE değildir.
+
+FRONTEND-004, yalnız mevcut rotaları gösteren role shell ve ortak 403 UX ile
+uygulandı; dört rolün canlı login → shell → logout kabulü bekleniyor.
 ```
 
 ## Current Frontend Task
@@ -346,7 +349,7 @@ FRONTEND-005 — Study List Foundation
 
 ## Next Recommended Frontend Task
 
-FRONTEND-004 — Role Based App Shell
+FRONTEND-004 canlı role navigation + logout kabulü.
 
 Ardından FRONTEND-005'in canlı filtre kabulü ve FRONTEND-006 Lock UI.
 

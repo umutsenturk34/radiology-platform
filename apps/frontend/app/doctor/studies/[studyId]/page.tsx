@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PilotBanner } from "@/components/layout/pilot-banner";
+import { ForbiddenState } from "@/components/layout/forbidden-state";
 import { ApiClientError } from "@/lib/api";
 import { getStudyDetail, getStudyLock, startReading } from "@/features/studies/api";
 
@@ -28,6 +29,7 @@ export default function DoctorStudyWorkspacePage() {
   });
 
   if (detail.isLoading) return <main className="p-6">Tetkik yükleniyor…</main>;
+  if (detail.isError && detail.error instanceof ApiClientError && detail.error.status === 403) return <main className="p-6"><ForbiddenState /></main>;
   if (detail.isError || !detail.data) return <main className="p-6" role="alert">Tetkik ayrıntısı yüklenemedi.</main>;
 
   const study = detail.data;

@@ -11,22 +11,10 @@ import { useAuthStore } from "@/features/auth/auth-store";
 const navigationByRole: Record<UserRole, Array<{ href: string; label: string }>> = {
   DOCTOR: [
     { href: "/doctor/studies", label: "Okuma havuzu" },
-    { href: "/doctor/approvals", label: "Onay bekleyenler" },
   ],
-  REPORTER: [
-    { href: "/reporter/studies", label: "Yazılmayanlar" },
-    { href: "/reporter/studies", label: "Aktif çalışma" },
-  ],
-  OPERATION: [
-    { href: "/operation", label: "Operasyon" },
-    { href: "/operation", label: "HBYS hataları" },
-    { href: "/operation", label: "SLA" },
-  ],
-  MANAGER: [
-    { href: "/manager", label: "Dashboard" },
-    { href: "/manager/users", label: "Kullanıcılar" },
-    { href: "/manager", label: "DevTools" },
-  ],
+  REPORTER: [],
+  OPERATION: [],
+  MANAGER: [],
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -66,6 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             const active = pathname === item.href;
             return <Link className={`whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium lg:block ${active ? "bg-sky-700 text-white" : "text-slate-300 hover:bg-slate-800 hover:text-white"}`} href={item.href} key={`${item.href}-${item.label}`}>{item.label}</Link>;
           })}
+          {items.length === 0 ? <p className="px-3 py-2 text-sm text-slate-400">Bu rol için kullanılabilir çalışma alanı henüz yok.</p> : null}
         </nav>
         <button className="mt-4 rounded-md border border-slate-600 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50" disabled={isLoggingOut} onClick={handleLogout} type="button">
           {isLoggingOut ? "Oturum kapatılıyor…" : "Oturumu kapat"}

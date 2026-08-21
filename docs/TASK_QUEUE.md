@@ -782,6 +782,15 @@ Manager:
 - rol bazında navigation doğru
 - backend 403 yine ayrıca ele alınıyor
 
+### Implementation Note (2026-08-21)
+
+- Sadece mevcut route'lar navigasyonda gösterilir; Doctor için `/doctor/studies`
+  görünür, diğer roller için mevcut çalışma alanı olmadığından sahte link üretilmez.
+- `403` API yanıtları Doctor havuzunda ve detail ekranında ortak Forbidden UX ile
+  gösterilir; yetki veya hastane kapsamı istemcide değiştirilmez.
+- Lint, typecheck ve production build PASS. Dört rolün login → shell → logout
+  canlı tarayıcı kabulü tamamlanmadan görev `DONE` yapılmayacak.
+
 ---
 
 # 14. HL7 + STUDY FOUNDATION

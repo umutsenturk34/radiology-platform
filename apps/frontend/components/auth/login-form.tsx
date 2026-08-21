@@ -9,9 +9,9 @@ import { useAuthStore } from "@/features/auth/auth-store";
 
 const destinationByRole = {
   DOCTOR: "/doctor/studies",
-  REPORTER: "/reporter/studies",
-  OPERATION: "/operation",
-  MANAGER: "/manager",
+  REPORTER: "/",
+  OPERATION: "/",
+  MANAGER: "/",
 } as const;
 
 export function LoginForm() {

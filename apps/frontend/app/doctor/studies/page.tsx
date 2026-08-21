@@ -6,7 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 import { STUDY_STATUSES, type PatientCategory, type StudyStatus } from "@radiology/shared";
 
 import { PilotBanner } from "@/components/layout/pilot-banner";
+import { ForbiddenState } from "@/components/layout/forbidden-state";
 import { listDoctorStudies, type DoctorStudiesQuery, type StudyListItem } from "@/features/studies/api";
+import { ApiClientError } from "@/lib/api";
 
 const categories: Array<{ value: PatientCategory | undefined; label: string }> = [
   { value: undefined, label: "Tümü" },
@@ -109,7 +111,8 @@ export default function DoctorStudiesPage() {
         </section>
 
         {studies.isLoading ? <p className="rounded-lg border bg-white p-6">Tetkikler yükleniyor…</p> : null}
-        {studies.isError ? <p className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-800" role="alert">Tetkik havuzu yüklenemedi. Lütfen tekrar deneyin.</p> : null}
+        {studies.isError && studies.error instanceof ApiClientError && studies.error.status === 403 ? <ForbiddenState /> : null}
+        {studies.isError && !(studies.error instanceof ApiClientError && studies.error.status === 403) ? <p className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-800" role="alert">Tetkik havuzu yüklenemedi. Lütfen tekrar deneyin.</p> : null}
         {studies.data?.data.length === 0 ? <p className="rounded-lg border bg-white p-6">Bu filtrelerle uygun tetkik yok.</p> : null}
         {studies.data?.data.length ? (
           <section className="overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
