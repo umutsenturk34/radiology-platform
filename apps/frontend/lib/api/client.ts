@@ -107,9 +107,12 @@ export class ApiClient {
   private readonly baseUrl: string;
   private readonly fetchFn: typeof fetch;
 
-  constructor({ baseUrl, fetchFn = fetch }: ApiClientOptions) {
+  constructor({ baseUrl, fetchFn }: ApiClientOptions) {
     this.baseUrl = normalizeBaseUrl(baseUrl);
-    this.fetchFn = fetchFn;
+    // `fetch` is a Web API method. Bind the native implementation before it is
+    // invoked through this client instance so browsers receive the global
+    // context they expect instead of the ApiClient instance as `this`.
+    this.fetchFn = fetchFn ?? globalThis.fetch.bind(globalThis);
   }
 
   setAccessToken(accessToken?: string) {
