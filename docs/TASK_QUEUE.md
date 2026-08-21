@@ -1096,6 +1096,16 @@ doktor GET /studies?pool=UNREAD               -> Study listede görünüyor
 - filter çalışıyor
 - empty/error/loading state var
 
+### Implementation Note (2026-08-21)
+
+- Gerçek `GET /studies` parametreleriyle kategori, hastane, durum ve metin arama
+  bağlandı; modality filtresi ve kategori/havuz agregasyon sayacı backend tarafından
+  sağlanmadığı için üretilmedi.
+- Loading, empty ve error durumları ile sayfalama tamamlandı. Lint, typecheck ve
+  production build PASS.
+- `FRONTEND-004` bağımlılığı ve yeni filtrelerin canlı tarayıcı kabulü tamamlanmadan
+  durum `DONE` yapılmayacak.
+
 ---
 
 # 15. WORKFLOW ENGINE

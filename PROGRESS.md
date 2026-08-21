@@ -327,7 +327,13 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-005 canlı Railway API doğrulamasını bekliyor.
+IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-005.
+
+Doctor login ve temel GET /studies akışı canlı Railway backend ile tarayıcıda
+doğrulandı. FRONTEND-005 operasyonel havuz görünümü; gerçek kategori, hastane,
+durum ve arama parametreleri ile sayfalama içeriyor. Backend desteklemediği için
+modality filtresi veya kategori/havuz sayacı üretilmedi. FRONTEND-004 bağımlılığı
+ve yeni filtrelerin canlı kabulü tamamlanmadan FRONTEND-005 DONE değildir.
 ```
 
 ## Current Frontend Task
@@ -340,28 +346,22 @@ FRONTEND-005 — Study List Foundation
 
 ## Next Recommended Frontend Task
 
-Frontend should begin after or in parallel with root workspace foundation.
+FRONTEND-004 — Role Based App Shell
 
-Likely first task:
-
-```text
-FRONTEND-001 — Next.js Application Bootstrap
-```
-
-after required workspace dependency is available.
+Ardından FRONTEND-005'in canlı filtre kabulü ve FRONTEND-006 Lock UI.
 
 ## Recently Completed Frontend Tasks
 
 ```text
 FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
+Frontend API same-origin geçidi (commit: 1dc401b)
+Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
 
 ## Frontend Blockers
 
 ```text
-Canlı acceptance testi için Railway API'nin gerçek public base URL'si gerekli.
-Bu değer repo veya environment'ta yok; dokümandaki örnek URL health isteğinde
-Railway `Application not found` (404 fallback) dönüyor.
+Canlı backend URL'si `.env.local` üzerinden yapılandırıldı. BLOCKED yok.
 ```
 
 ## Frontend Known Issues
@@ -382,9 +382,8 @@ docs/TASK_QUEUE.md
 docs/FRONTEND.md
 
 Then:
-Gerçek `NEXT_PUBLIC_API_URL` ile seed kullanıcılarıyla login, /auth/me, refresh
-rotation, logout ve Doctor `GET /studies` akışını doğrula; ardından FRONTEND-002,
-FRONTEND-003 ve FRONTEND-005'i acceptance'a göre güncelle.
+FRONTEND-004 role-based app shell'i uygula. Ardından FRONTEND-005'in kategori,
+hastane, durum, arama ve sayfalama kontrollerini canlı tarayıcıda kabul et.
 ```
 
 ---
@@ -723,9 +722,13 @@ None
 
 # 19. LATEST QUALITY GATE RESULTS
 
-No development quality gate has been run yet.
+Measured on 2026-08-21 (frontend):
 
-Current status:
+```text
+Frontend lint: PASS
+Frontend typecheck: PASS
+Frontend production build: PASS
+```
 
 Measured on 2026-08-15 (backend):
 
