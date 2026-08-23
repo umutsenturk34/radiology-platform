@@ -1,7 +1,8 @@
-import { PatientCategory, SortOrder, StudyPool, StudyStatus, UserRole, UserStatus } from '@radiology/shared'; // prettier-ignore
+import { PATIENT_CATEGORIES, PatientCategory, SlaState, SortOrder, StudyPool, StudyStatus, UserRole, UserStatus } from '@radiology/shared'; // prettier-ignore
 import { StudiesService } from './studies.service';
 import { ListStudiesDto } from './dto/list-studies.dto';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
+import { SlaService } from '../sla/sla.service';
 import { AppException } from '../common/errors/app.exception';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -81,6 +82,14 @@ function createPrismaSpy(rows: Array<Record<string, unknown>> = [studyRow()]) {
       },
     },
     $transaction: (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    // The SLA engine reads the active warning windows; the seeded 20 minutes
+    // keeps these query-shape assertions on the policy the pilot actually runs.
+    slaPolicy: {
+      findMany: () =>
+        Promise.resolve(
+          PATIENT_CATEGORIES.map((category) => ({ category, warningBeforeMinutes: 20 })),
+        ),
+    },
   };
 
   return { prisma: prisma as unknown as PrismaService, calls };
@@ -88,7 +97,10 @@ function createPrismaSpy(rows: Array<Record<string, unknown>> = [studyRow()]) {
 
 function createService(rows?: Array<Record<string, unknown>>) {
   const { prisma, calls } = createPrismaSpy(rows);
-  return { service: new StudiesService(prisma, new HospitalScopeService()), calls };
+  return {
+    service: new StudiesService(prisma, new HospitalScopeService(), new SlaService(prisma)),
+    calls,
+  };
 }
 
 async function expectAppError(promise: Promise<unknown>, code: string): Promise<AppException> {
@@ -316,7 +328,16 @@ describe('StudiesService.list', () => {
       category: PatientCategory.ACIL,
       status: StudyStatus.UNREAD,
       arrivalAt: '2026-08-15T10:00:00.000Z',
-      sla: { deadlineAt: '2026-08-15T12:00:00.000Z' },
+      // The fixture deadline is permanently in the past, so the state is
+      // stable; only how far past it is moves with the clock, and the SLA
+      // arithmetic itself is asserted in sla.calculator.spec.ts.
+      sla: {
+        deadlineAt: '2026-08-15T12:00:00.000Z',
+        completedAt: null,
+        remainingSeconds: 0,
+        overdueSeconds: expect.any(Number),
+        state: SlaState.OVERDUE,
+      },
       assignment: { doctor: null, reporter: null },
     });
     expect(result.data[0]).not.toHaveProperty('hospitalId');

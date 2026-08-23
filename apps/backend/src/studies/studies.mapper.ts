@@ -3,6 +3,7 @@ import type {
   StudyAssignmentSummary,
   StudyDetail,
   StudyListItem,
+  StudySlaSnapshot,
   StudyUserSummary,
 } from '@radiology/shared';
 
@@ -80,7 +81,7 @@ function toAssignment(study: StudyRow): StudyAssignmentSummary {
   };
 }
 
-export function toStudyListItem(study: StudyRow): StudyListItem {
+export function toStudyListItem(study: StudyRow, sla: StudySlaSnapshot): StudyListItem {
   return {
     id: study.id,
     accessionNumber: study.accessionNumber,
@@ -99,12 +100,12 @@ export function toStudyListItem(study: StudyRow): StudyListItem {
     category: study.category as PatientCategory,
     status: study.status as StudyStatus,
     arrivalAt: toIso(study.arrivalAt),
-    sla: { deadlineAt: toIso(study.slaDeadlineAt) },
+    sla,
     assignment: toAssignment(study),
   };
 }
 
-export function toStudyDetail(study: StudyRow): StudyDetail {
+export function toStudyDetail(study: StudyRow, sla: StudySlaSnapshot): StudyDetail {
   return {
     id: study.id,
     accessionNumber: study.accessionNumber,
@@ -130,7 +131,7 @@ export function toStudyDetail(study: StudyRow): StudyDetail {
       externalProtocolId: study.externalProtocolId,
     },
     arrivalAt: toIso(study.arrivalAt),
-    sla: { deadlineAt: toIso(study.slaDeadlineAt) },
+    sla,
     assignment: toAssignment(study),
     timestamps: {
       firstHl7ReceivedAt: toIso(study.firstHl7ReceivedAt),

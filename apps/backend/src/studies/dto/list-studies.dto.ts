@@ -5,12 +5,14 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
   PATIENT_CATEGORIES,
+  SLA_STATES,
   SortOrder,
   STUDY_POOLS,
   STUDY_SORT_FIELDS,
   STUDY_STATUSES,
   StudySortField,
   type PatientCategory,
+  type SlaState,
   type StudyPool,
   type StudyStatus,
 } from '@radiology/shared';
@@ -41,6 +43,15 @@ export class ListStudiesDto {
   @IsOptional()
   @IsIn(STUDY_POOLS, { message: 'pool is not a known study pool.' })
   pool?: StudyPool;
+
+  /**
+   * Derived SLA state, the way Operation finds studies at risk
+   * (docs/API_CONTRACT.md section 92). Not a stored column: the service turns
+   * it into a deadline comparison.
+   */
+  @IsOptional()
+  @IsIn(SLA_STATES, { message: 'slaState is not a known SLA state.' })
+  slaState?: SlaState;
 
   /** A UUID, or the literal `me` meaning the caller (API_CONTRACT section 57). */
   @IsOptional()

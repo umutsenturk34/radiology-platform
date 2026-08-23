@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   ASSIGNED_TO_ME,
   buildPaginationMeta,
+  SlaState,
   StudyPool,
   StudyStatus,
   type PaginatedResponse,
@@ -9,6 +10,7 @@ import {
   type StudyListItem,
 } from '@radiology/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { SlaService, type SlaWarningWindows } from '../sla/sla.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { NotFoundAppException } from '../common/errors/app.exception';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -51,12 +53,18 @@ export class StudiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly hospitalScope: HospitalScopeService,
+    private readonly sla: SlaService,
   ) {}
 
   async list(
     user: AuthenticatedUser,
     query: ListStudiesDto,
   ): Promise<PaginatedResponse<StudyListItem>> {
+    // One clock for the whole page, so two studies with the same deadline can
+    // never disagree about how much time is left.
+    const now = new Date();
+    const windows = await this.sla.warningWindows();
+
     // Throws HOSPITAL_ACCESS_DENIED when hospitalId names a hospital the user
     // cannot see; otherwise narrows the query to the authorized set.
     const where: Record<string, unknown> = {
@@ -82,6 +90,12 @@ export class StudiesService {
       Object.assign(where, buildSearchFilter(query.search));
     }
 
+    if (query.slaState) {
+      // Nested under AND because the free-text search already owns the
+      // top-level OR; assigning another one would silently drop the search.
+      where.AND = [buildSlaFilter(query.slaState, windows, now)];
+    }
+
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.study.count({ where }),
       this.prisma.study.findMany({
@@ -94,7 +108,9 @@ export class StudiesService {
     ]);
 
     return {
-      data: (rows as unknown as StudyRow[]).map(toStudyListItem),
+      data: (rows as unknown as StudyRow[]).map((row) =>
+        toStudyListItem(row, this.sla.snapshot(row, windows, now)),
+      ),
       meta: buildPaginationMeta(query.page, query.pageSize, total),
     };
   }
@@ -115,8 +131,43 @@ export class StudiesService {
     // (TASK_QUEUE BACKEND-008).
     this.hospitalScope.assertAllowed(user, study.hospitalId);
 
-    return toStudyDetail(study as unknown as StudyRow);
+    const row = study as unknown as StudyRow;
+    return toStudyDetail(row, this.sla.snapshot(row, await this.sla.warningWindows(), new Date()));
   }
+}
+
+/**
+ * Turns a derived SLA state into a query over the frozen deadline
+ * (TASK_QUEUE BACKEND-039).
+ *
+ * The warning band differs per category, so WARNING and NORMAL fan out into one
+ * clause per category. Categories with no active policy carry no deadline, so
+ * `slaDeadlineAt: { gt: ... }` excludes them without a special case — which is
+ * how YOGUN_BAKIM stays out of SLA lists instead of getting an invented one.
+ */
+function buildSlaFilter(
+  state: SlaState,
+  windows: SlaWarningWindows,
+  now: Date,
+): Record<string, unknown> {
+  if (state === SlaState.COMPLETED) {
+    return { finalizedAt: { not: null } };
+  }
+
+  if (state === SlaState.OVERDUE) {
+    return { finalizedAt: null, slaDeadlineAt: { not: null, lte: now } };
+  }
+
+  const perCategory = [...windows.entries()].map(([category, minutes]) => {
+    const boundary = new Date(now.getTime() + minutes * 60_000);
+    return state === SlaState.WARNING
+      ? { category, slaDeadlineAt: { gt: now, lte: boundary } }
+      : { category, slaDeadlineAt: { gt: boundary } };
+  });
+
+  // No active policies at all means nothing can be in a warning band; an empty
+  // OR would match everything, so match nothing instead.
+  return perCategory.length > 0 ? { finalizedAt: null, OR: perCategory } : { id: { in: [] } };
 }
 
 /** Resolves the documented `me` alias to the caller's id. */

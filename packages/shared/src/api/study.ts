@@ -4,12 +4,12 @@
  * Scope note: these types cover what the phase-1 data model can actually
  * answer. `clinicalData`, `pacs`, `lock`, the derived SLA state and the
  * information/revision flags described in API_CONTRACT are added by their own
- * tasks (BACKEND-015 locks, BACKEND-019/020 PACS, BACKEND-039 SLA engine,
- * BACKEND-041 information notes). Nothing here is invented ahead of its model.
+ * tasks (BACKEND-015 locks, BACKEND-019/020 PACS, BACKEND-041 information
+ * notes). Nothing here is invented ahead of its model.
  */
 
 import type { PatientCategory } from '../enums/patient';
-import type { StudyStatus } from '../enums/study';
+import type { SlaState, StudyStatus } from '../enums/study';
 import type { SortOrder } from './pagination';
 
 export interface StudyPatientSummary {
@@ -46,13 +46,27 @@ export interface StudyAssignmentSummary {
 }
 
 /**
- * SLA snapshot frozen at arrival (docs/DATA_MODEL.md section 66).
+ * SLA snapshot frozen at arrival (docs/DATA_MODEL.md section 66) plus the state
+ * derived from it (BACKEND-039).
  *
- * Only the stored deadline is exposed for now; `remainingSeconds`,
- * `overdueSeconds` and `state` arrive with the SLA engine (BACKEND-039).
+ * Every derived field is null when the study has no deadline — either it has
+ * not arrived yet, or its category has no active policy. YOGUN_BAKIM is the
+ * live case: its duration is undefined (BLOCKED_SPEC), so those studies carry
+ * no deadline and no SLA state rather than a guessed one.
+ *
+ * Once the clock stops, `remainingSeconds` and `overdueSeconds` freeze at what
+ * they were on final approval, so a study reported 10 minutes late still reads
+ * as 10 minutes late tomorrow.
  */
 export interface StudySlaSnapshot {
   deadlineAt: string | null;
+  /** Doctor final approval — where the clock stops (WORKFLOW_STATE_MACHINE 61). */
+  completedAt: string | null;
+  /** Seconds left before the deadline; 0 once it has passed. */
+  remainingSeconds: number | null;
+  /** Seconds past the deadline; 0 while still inside it. */
+  overdueSeconds: number | null;
+  state: SlaState | null;
 }
 
 export interface StudyListItem {

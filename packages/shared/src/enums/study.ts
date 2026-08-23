@@ -35,3 +35,22 @@ export const StudyStatus = {
 export type StudyStatus = (typeof StudyStatus)[keyof typeof StudyStatus];
 
 export const STUDY_STATUSES: readonly StudyStatus[] = Object.values(StudyStatus);
+
+/**
+ * Derived SLA state (docs/WORKFLOW_STATE_MACHINE.md section 40).
+ *
+ * Deliberately NOT part of `StudyStatus`: a study can be
+ * `WAITING_TRANSCRIPTION` and `OVERDUE` at the same time. `COMPLETED` means the
+ * clock stopped at the doctor's final approval (section 61) — a later HBYS
+ * failure must not make the report clinically late again.
+ */
+export const SlaState = {
+  NORMAL: 'NORMAL',
+  WARNING: 'WARNING',
+  OVERDUE: 'OVERDUE',
+  COMPLETED: 'COMPLETED',
+} as const;
+
+export type SlaState = (typeof SlaState)[keyof typeof SlaState];
+
+export const SLA_STATES: readonly SlaState[] = Object.values(SlaState);
