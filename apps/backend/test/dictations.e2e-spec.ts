@@ -245,6 +245,46 @@ describe('Dictations (e2e)', () => {
       expect(response.body.error.code).toBe('UNAUTHORIZED');
     });
 
+    /**
+     * The audio route is @Public: authority comes only from the signed token.
+     * Nothing exercised the hospital re-check behind it, and that check is the
+     * only thing standing between a token holder and audio from a hospital
+     * they are not authorized for.
+     */
+    it('refuses to stream audio to a token whose user lost hospital access', async () => {
+      await startReading();
+      const dictationId = await createDictation();
+      await upload(dictationId, 'doctorA').expect(200);
+      const playback = await get(`/api/v1/dictations/${dictationId}/playback`, 'doctorA').expect(
+        200,
+      );
+
+      // The doctor's hospital grant is withdrawn after the URL was issued.
+      const access = harness.hospitalAccess;
+      const removed = access.findIndex((row) => row.userId === 'u-doctor');
+      access.splice(removed, 1);
+
+      const response = await request(server()).get(playback.body.data.url).expect(403);
+
+      expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
+    });
+
+    it('refuses to stream audio once the account is deactivated', async () => {
+      await startReading();
+      const dictationId = await createDictation();
+      await upload(dictationId, 'doctorA').expect(200);
+      const playback = await get(`/api/v1/dictations/${dictationId}/playback`, 'doctorA').expect(
+        200,
+      );
+
+      const doctor = harness.users.find((u) => u.id === 'u-doctor');
+      if (doctor) doctor.status = 'INACTIVE';
+
+      const response = await request(server()).get(playback.body.data.url).expect(403);
+
+      expect(response.body.error.code).toBe('FORBIDDEN');
+    });
+
     it('refuses playback of a recording that was never uploaded', async () => {
       await startReading();
       const dictationId = await createDictation();

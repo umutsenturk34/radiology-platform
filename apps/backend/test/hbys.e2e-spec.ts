@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { createTestHarness, type TestHarness } from './fixtures/auth-test-harness';
-import { STUDY_IN_SCOPE_OLDEST } from './fixtures/study-fixtures';
+import { STUDY_IN_SCOPE_OLDEST, STUDY_OUT_OF_SCOPE } from './fixtures/study-fixtures';
 import { HbysDeliveryService } from '../src/integrations/hbys/hbys-delivery.service';
 import { MockHbysAdapter, MockHbysMode } from '../src/integrations/hbys/mock-hbys.adapter';
 
@@ -22,7 +22,12 @@ describe('HBYS delivery (e2e)', () => {
   beforeEach(async () => {
     harness = await createTestHarness({
       withRedis: true,
-      studies: [{ ...STUDY_IN_SCOPE_OLDEST, status: 'WAITING_TRANSCRIPTION' }],
+      studies: [
+        { ...STUDY_IN_SCOPE_OLDEST, status: 'WAITING_TRANSCRIPTION' },
+        // Belongs to a hospital nobody in this suite is granted, so the scope
+        // checks on the HBYS endpoints can be exercised.
+        { ...STUDY_OUT_OF_SCOPE, status: 'HBYS_FAILED' },
+      ],
       hospitalAccess: [
         { userId: 'u-doctor', hospitalId: STUDY_IN_SCOPE_OLDEST.hospitalId },
         { userId: 'u-reporter', hospitalId: STUDY_IN_SCOPE_OLDEST.hospitalId },
@@ -405,6 +410,79 @@ describe('HBYS delivery (e2e)', () => {
         .set('Authorization', `Bearer ${tokens.operation}`)
         .send({ mode: 'FAIL' })
         .expect(403);
+    });
+  });
+
+  /**
+   * Hospital scope on the HBYS endpoints.
+   *
+   * The service calls assertAllowed on all three, but nothing exercised it: a
+   * delivery carries the report of a specific hospital, so an Operation user
+   * from another hospital must not be able to read its attempts or push it
+   * back onto the queue.
+   */
+  describe('hospital scope', () => {
+    /** A delivery attached to the hospital nobody in this suite can see. */
+    function outOfScopeDelivery() {
+      const delivery = {
+        id: '44444444-4444-4444-8444-444444444444',
+        studyId: STUDY_OUT_OF_SCOPE.id,
+        hospitalId: STUDY_OUT_OF_SCOPE.hospitalId,
+        reportVersionId: '55555555-5555-4555-8555-555555555555',
+        status: 'FAILED',
+        idempotencyKey: 'out-of-scope-key',
+        attemptCount: 1,
+        lastErrorCode: 'MOCK_HBYS_REJECTED',
+        lastErrorMessage: 'Mock HBYS rejection.',
+        externalReportId: null,
+        queuedAt: new Date(),
+        sentAt: null,
+        completedAt: new Date(),
+      };
+      harness.hbysDeliveries.push(delivery);
+      return delivery;
+    }
+
+    it('hides another hospital deliveries from the study endpoint', async () => {
+      const response = await get(
+        `/api/v1/studies/${STUDY_OUT_OF_SCOPE.id}/hbys-deliveries`,
+        'operation',
+      ).expect(403);
+
+      expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
+    });
+
+    it('refuses the attempts of a delivery in another hospital', async () => {
+      const delivery = outOfScopeDelivery();
+
+      const response = await get(
+        `/api/v1/hbys-deliveries/${delivery.id}/attempts`,
+        'operation',
+      ).expect(403);
+
+      expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
+    });
+
+    it('refuses a manual retry of a delivery in another hospital', async () => {
+      const delivery = outOfScopeDelivery();
+
+      const response = await post(`/api/v1/hbys-deliveries/${delivery.id}/retry`, 'operation', {
+        reason: 'baska hastane',
+      }).expect(403);
+
+      expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
+      // The delivery is untouched: no re-queue, no status change.
+      expect(delivery.status).toBe('FAILED');
+      expect(harness.queuedJobs).toHaveLength(0);
+    });
+
+    it('returns 404, not 403, for a delivery that does not exist', async () => {
+      const response = await get(
+        '/api/v1/hbys-deliveries/99999999-9999-4999-8999-999999999999/attempts',
+        'operation',
+      ).expect(404);
+
+      expect(response.body.error.code).toBe('NOT_FOUND');
     });
   });
 });

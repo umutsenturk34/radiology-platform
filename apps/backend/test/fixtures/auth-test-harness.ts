@@ -127,6 +127,11 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, WhereV
       return branches.some((branch) => matchesWhere(row, branch));
     }
 
+    if (key === 'AND') {
+      const branches = condition as Array<Record<string, WhereValue>>;
+      return branches.every((branch) => matchesWhere(row, branch));
+    }
+
     const value = row[key];
 
     if (condition !== null && typeof condition === 'object') {
@@ -138,6 +143,28 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, WhereV
       if ('contains' in operators) {
         const needle = String(operators.contains).toLowerCase();
         return typeof value === 'string' && value.toLowerCase().includes(needle);
+      }
+
+      // Date-range and negation operators, which the SLA state filter builds
+      // out of the frozen deadline (BACKEND-039). Prisma treats several
+      // operators in one object as AND, so every present key must hold.
+      const RANGE_OPERATORS = ['not', 'gt', 'gte', 'lt', 'lte'] as const;
+      const present = RANGE_OPERATORS.filter((operator) => operator in operators);
+
+      if (present.length > 0) {
+        return present.every((operator) => {
+          const bound = operators[operator];
+          if (operator === 'not') {
+            return bound === null ? value !== null && value !== undefined : value !== bound;
+          }
+          if (value === null || value === undefined) return false;
+
+          const order = compare(value, bound);
+          if (operator === 'gt') return order > 0;
+          if (operator === 'gte') return order >= 0;
+          if (operator === 'lt') return order < 0;
+          return order <= 0;
+        });
       }
       // Nested relation filter, e.g. { patient: { lastName: { contains } } }.
       return (
@@ -176,9 +203,24 @@ function sortRows(
   });
 }
 
+/**
+ * Argon2id is memory-hard on purpose, which is right in production and wrong in
+ * a test fixture: the harness rebuilds users in every `beforeEach` and every
+ * `accessTokenFor` triggers a real verify, so the default cost turned a suite of
+ * fast HTTP assertions into a CPU-bound one that blew Jest's 5s timeout on a
+ * loaded machine. The cost parameters are encoded in the hash string, so
+ * verification during login gets cheap for free — the auth code under test is
+ * untouched and still runs the real Argon2id path.
+ */
+const TEST_ARGON_OPTIONS = { memoryCost: 64, timeCost: 1, parallelism: 1 } as const;
+
+/** Hashed once per worker process, not once per test. */
+let testPasswordHash: Promise<string> | undefined;
+
 /** The four pilot roles plus two disabled accounts, all sharing one password. */
 export async function buildTestUsers(): Promise<StoredUser[]> {
-  const passwordHash = await argonHash(TEST_PASSWORD);
+  testPasswordHash ??= argonHash(TEST_PASSWORD, TEST_ARGON_OPTIONS);
+  const passwordHash = await testPasswordHash;
   const base = { passwordHash, firstName: 'Test', lastName: 'Kullanici', lastLoginAt: null };
 
   return [
@@ -493,6 +535,24 @@ export function createPrismaStub(
         return Promise.resolve(user);
       },
     },
+    /**
+     * The policies the pilot seed actually writes: ACIL, YATAN and NORMAL.
+     *
+     * YOGUN_BAKIM is absent here for the same reason it is absent from the
+     * seed — its duration is undefined (BLOCKED_SPEC) — so the e2e suite proves
+     * the engine leaves those studies without an SLA state rather than
+     * inventing one.
+     */
+    slaPolicy: {
+      findMany: () =>
+        Promise.resolve(
+          [
+            { category: 'ACIL', durationMinutes: 120 },
+            { category: 'YATAN', durationMinutes: 720 },
+            { category: 'NORMAL', durationMinutes: 1440 },
+          ].map((policy) => ({ ...policy, warningBeforeMinutes: 20, active: true })),
+        ),
+    },
     study: {
       count: ({ where }: { where: Record<string, unknown> }) =>
         Promise.resolve(
@@ -588,7 +648,7 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts, accessRows };
 }
 
 /**
@@ -641,6 +701,8 @@ export interface TestHarness {
   users: StoredUser[];
   sessions: StoredSession[];
   studies: StoredStudy[];
+  /** Mutable grant rows, so a test can withdraw access mid-flight. */
+  hospitalAccess: Array<{ userId: string; hospitalId: string }>;
   statusHistory: Array<Record<string, unknown>>;
   auditLogs: Array<Record<string, unknown>>;
   assignments: Array<Record<string, unknown>>;
@@ -719,6 +781,7 @@ export async function createTestHarness(
     users,
     sessions: prismaStub.sessions,
     studies,
+    hospitalAccess: prismaStub.accessRows,
     statusHistory: prismaStub.statusHistory,
     auditLogs: prismaStub.auditLogs,
     assignments: prismaStub.assignments,
@@ -734,7 +797,19 @@ export async function createTestHarness(
       const response = await login(email).expect(200);
       return response.body.data.accessToken as string;
     },
-    close: () => app.close(),
+    close: async () => {
+      // Supertest leaves keep-alive sockets open, and Node's server.close()
+      // waits for existing connections to end rather than ending them. One
+      // survivor is enough to keep Jest alive after the last assertion, which
+      // is what the "Jest did not exit one second after the test run" warning
+      // was pointing at — and occasionally it hung the whole run instead of
+      // just warning. Destroy the sockets first, then shut the app down.
+      const server = app.getHttpServer() as {
+        closeAllConnections?: () => void;
+      };
+      server.closeAllConnections?.();
+      await app.close();
+    },
   };
 }
 

@@ -8,5 +8,6 @@
   "transform": {
     "^.+\\.ts$": ["ts-jest", { "tsconfig": "<rootDir>/tsconfig.spec.json" }]
   },
-  "clearMocks": true
+  "clearMocks": true,
+  "testTimeout": 20000
 }

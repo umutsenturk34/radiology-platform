@@ -27,9 +27,13 @@ interface BuildOptions {
   externalPatientId: string;
   studyDescription?: string;
   assignedDoctorId?: string | null;
+  /** Overrides the arrival+2h default, so SLA states can be built around now. */
+  slaDeadlineAt?: Date | null;
+  /** Doctor final approval, which stops the SLA clock. */
+  finalizedAt?: Date | null;
 }
 
-function buildStudy(options: BuildOptions): StoredStudy {
+export function buildStudy(options: BuildOptions): StoredStudy {
   return {
     id: options.id,
     hospitalId: options.hospital.id,
@@ -42,8 +46,12 @@ function buildStudy(options: BuildOptions): StoredStudy {
     externalOrderId: null,
     externalProtocolId: null,
     arrivalAt: new Date(options.arrivalAt),
-    slaDeadlineAt: new Date(new Date(options.arrivalAt).getTime() + 2 * 60 * 60 * 1000),
+    slaDeadlineAt:
+      options.slaDeadlineAt !== undefined
+        ? options.slaDeadlineAt
+        : new Date(new Date(options.arrivalAt).getTime() + 2 * 60 * 60 * 1000),
     ...NO_TIMESTAMPS,
+    finalizedAt: options.finalizedAt ?? null,
     assignedDoctorId: options.assignedDoctorId ?? null,
     assignedReporterId: null,
     patient: {

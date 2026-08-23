@@ -9,6 +9,9 @@ import { STUDY_IN_SCOPE_OLDEST, STUDY_OUT_OF_SCOPE } from './fixtures/study-fixt
  * The mandatory concurrency guarantee is that a second doctor cannot open a
  * study another doctor is already reading (CLAUDE.md section 61).
  */
+/** The suite pins this in jest-e2e.setup.ts; read it rather than repeat it. */
+const LOCK_TTL_SECONDS = Number(process.env.LOCK_TTL_SECONDS ?? 60);
+
 describe('Study locks (e2e)', () => {
   let harness: TestHarness;
   const tokens: Record<string, string> = {};
@@ -158,7 +161,7 @@ describe('Study locks (e2e)', () => {
 
       const response = await post(`/api/v1/studies/${STUDY}/lock/heartbeat`, 'doctorA').expect(200);
 
-      expect(response.body.data).toEqual({ valid: true, expiresInSeconds: 60 });
+      expect(response.body.data).toEqual({ valid: true, expiresInSeconds: LOCK_TTL_SECONDS });
     });
 
     it('is refused from anyone else with 423 LOCK_NOT_OWNED', async () => {
@@ -301,7 +304,9 @@ describe('Study locks (e2e)', () => {
         ownerUserId: 'u-doctor',
         ownerRole: 'DOCTOR',
       });
+      // Still inside its lifetime, and never longer than the configured TTL.
       expect(response.body.data.expiresInSeconds).toBeGreaterThan(0);
+      expect(response.body.data.expiresInSeconds).toBeLessThanOrEqual(LOCK_TTL_SECONDS);
     });
 
     it('is refused for a study in an unauthorized hospital', async () => {
