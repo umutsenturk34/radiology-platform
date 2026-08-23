@@ -142,6 +142,9 @@ model User {
   dictations      Dictation[]
   reportVersions  ReportVersion[]
 
+  informationNotes        InformationNote[]
+  informationNoteVersions InformationNoteVersion[]
+
   @@index([role, status])
   @@map("users")
 }
@@ -297,6 +300,7 @@ model Study {
   dictations       Dictation[]
   report           Report?
   hbysDeliveries   HbysDelivery[]
+  informationNotes InformationNote[]
 
   /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
   /// are only unique within a hospital.
@@ -451,11 +455,11 @@ model ReportVersion {
 
   supersedesVersionId String? @db.Uuid
 
-  report      Report         @relation("ReportVersions", fields: [reportId], references: [id], onDelete: Cascade)
-  currentFor  Report?        @relation("ReportCurrentVersion")
-  author      User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
-  supersedes  ReportVersion? @relation("ReportVersionSupersedes", fields: [supersedesVersionId], references: [id], onDelete: SetNull)
-  supersededBy ReportVersion[] @relation("ReportVersionSupersedes")
+  report         Report          @relation("ReportVersions", fields: [reportId], references: [id], onDelete: Cascade)
+  currentFor     Report?         @relation("ReportCurrentVersion")
+  author         User            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  supersedes     ReportVersion?  @relation("ReportVersionSupersedes", fields: [supersedesVersionId], references: [id], onDelete: SetNull)
+  supersededBy   ReportVersion[] @relation("ReportVersionSupersedes")
   hbysDeliveries HbysDelivery[]
 
   @@unique([reportId, versionNumber])
@@ -576,6 +580,62 @@ model AuditLog {
   @@index([eventType, createdAt])
   @@index([actorUserId, createdAt])
   @@map("audit_logs")
+}
+
+/// Free-text note a clinician leaves on a study (DATA_MODEL.md section 47).
+///
+/// There is no delete path anywhere in the application: the model exists to
+/// accumulate history, not to be pruned. `currentContent` is a denormalized
+/// copy of the newest version so the list endpoint does not need a join per
+/// row; the versions table remains the record of truth.
+model InformationNote {
+  id      String @id @default(uuid()) @db.Uuid
+  studyId String @db.Uuid
+
+  authorUserId String   @db.Uuid
+  /// The author's role AT THE TIME OF WRITING. Denormalized on purpose: a user
+  /// whose role changes later must not silently rewrite the history of who
+  /// said what in which capacity.
+  authorRole   UserRole
+
+  currentContent String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  study    Study                    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  author   User                     @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+  versions InformationNoteVersion[]
+
+  @@index([studyId, createdAt])
+  @@index([authorUserId])
+  @@map("information_notes")
+}
+
+/// Append-only content history for a note (DATA_MODEL.md section 48).
+///
+/// Creating a note writes version 1, and every update writes another. Rows are
+/// never updated or deleted — not even by a Manager
+/// (AUTH_ROLES_PERMISSIONS.md section: "Information history silemez").
+model InformationNoteVersion {
+  id     String @id @default(uuid()) @db.Uuid
+  noteId String @db.Uuid
+
+  content String @db.Text
+
+  /// Position in the note's own history, starting at 1. Unique per note, so a
+  /// concurrent double update cannot produce two "version 2" rows.
+  versionNumber Int
+
+  createdBy String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  note    InformationNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  creator User            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([noteId, versionNumber])
+  @@index([noteId, createdAt])
+  @@map("information_note_versions")
 }
 
 /// SLA durations held as configuration instead of magic numbers

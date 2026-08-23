@@ -2433,7 +2433,7 @@ Production policy etkilenmiyor.
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Models
@@ -2452,6 +2452,66 @@ Production policy etkilenmiyor.
 
 - delete yok
 - history korunuyor
+
+### Completed
+
+Modeller (`20260823200000_add_information_notes`, tamamen additive — iki yeni
+tablo, mevcut hiçbir tabloya dokunulmadı):
+
+```text
+InformationNote          currentContent + authorRole (yazıldığı andaki rol)
+InformationNoteVersion   append-only, @@unique([noteId, versionNumber])
+```
+
+Endpointler (API_CONTRACT 68-72):
+
+```text
+GET  /studies/:studyId/information       dört rol de okur
+POST /studies/:studyId/information       dört rol de yazar
+PUT  /information/:noteId                yazar veya OPERATION / MANAGER
+GET  /information/:noteId/versions       hastane scope'u içindeki kullanıcılar
+```
+
+### Kabul maddeleri
+
+- **delete yok:** hiçbir katmanda delete yolu yok. Servis delete metodu
+  sunmuyor, controller DELETE route'u tanımlamıyor. Test, Manager token'ıyla üç
+  makul delete yolunu deniyor; üçü de 404 (403 değil — yetkilendirilecek bir
+  route yok) ve not yerinde kalıyor.
+- **history korunuyor:** not oluşturmak version 1'i yazar, her düzenleme yeni
+  bir version ekler. Güncelleme yalnızca denormalize `currentContent` kopyasını
+  taşır; eski version satırlarına dokunmaz.
+
+### Kararlar
+
+- `authorRole` denormalize saklanıyor. Kullanıcının rolü sonradan değişirse,
+  kimin hangi sıfatla ne yazdığının geçmişi sessizce değişmemeli.
+- Sürüm numarası `count` ile değil, notun kendi geçmişindeki en yüksek numaradan
+  türetiliyor. Eşzamanlı iki düzenleme unique kısıtında çarpışır; iki tane
+  "version 2" satırı oluşmaz.
+- Not kendi id'siyle erişilebildiği için hastane scope'u `PUT` ve `versions`
+  uçlarında da yeniden kontrol ediliyor; çağıranın study üzerinden geldiği
+  varsayılmıyor.
+
+### Kapsam dışı bırakılan (uydurulmadı)
+
+`flags.hasInformation` eklenmedi. API_CONTRACT section 26 ve section 28 `flags`
+nesnesini **birbiriyle çelişen** alan listeleriyle tanımlıyor:
+
+```text
+section 26: hasInformation, hasRevisionRequest, hasUnreportedSiblingStudy, imageMissing
+section 28: hasInformation, imageMissing, revisionRequested, externalLockConflict
+```
+
+İkisini birleştirmek ya birini seçmek uydurma olurdu. BACKEND-041'in kabul
+maddeleri zaten `flags` içermiyor. Sözleşme tek bir şekle karar verdiğinde
+eklenmeli — DISCOVERED olarak not edildi.
+
+### Testler
+
+```text
+test/information.e2e-spec.ts   27 test
+```
 
 ---
 

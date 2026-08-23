@@ -310,6 +310,8 @@ export function createPrismaStub(
   const reportVersions: Array<Record<string, unknown>> = [];
   const hbysDeliveries: Array<Record<string, unknown>> = [];
   const hbysAttempts: Array<Record<string, unknown>> = [];
+  const informationNotes: Array<Record<string, unknown>> = [];
+  const informationNoteVersions: Array<Record<string, unknown>> = [];
 
   const withAuthor = (row: Record<string, unknown>) => ({
     ...row,
@@ -543,6 +545,87 @@ export function createPrismaStub(
      * the engine leaves those studies without an SLA state rather than
      * inventing one.
      */
+    informationNote: {
+      findUnique: ({ where, include }: { where: { id: string }; include?: unknown }) => {
+        const row = informationNotes.find((entry) => entry.id === where.id);
+        if (!row) return Promise.resolve(null);
+        if (!include) return Promise.resolve(row);
+        const study = studies.find((entry) => entry.id === row.studyId);
+        return Promise.resolve({ ...row, study });
+      },
+      findMany: ({ where }: { where?: Record<string, unknown> }) => {
+        const rows = informationNotes.filter((row) =>
+          Object.entries(where ?? {}).every(([key, value]) => row[key] === value),
+        );
+        return Promise.resolve(
+          [...rows]
+            .sort((a, b) => compare(a.createdAt, b.createdAt))
+            .map((row) => ({
+              ...row,
+              author: users.find((user) => user.id === row.authorUserId) ?? null,
+              _count: {
+                versions: informationNoteVersions.filter((v) => v.noteId === row.id).length,
+              },
+            })),
+        );
+      },
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        const { versions, ...rest } = data as Record<string, unknown> & {
+          versions?: { create: Record<string, unknown> };
+        };
+        const now = new Date();
+        const row = { id: randomUUID(), createdAt: now, updatedAt: now, ...rest };
+        informationNotes.push(row);
+        // Prisma writes a nested create in the same statement, so the stub has
+        // to as well — otherwise a fresh note would report versionCount 0.
+        if (versions?.create) {
+          informationNoteVersions.push({
+            id: randomUUID(),
+            createdAt: new Date(),
+            noteId: row.id,
+            ...versions.create,
+          });
+        }
+        return Promise.resolve(row);
+      },
+      update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = informationNotes.find((entry) => entry.id === where.id);
+        Object.assign(row as Record<string, unknown>, data, { updatedAt: new Date() });
+        return Promise.resolve(row);
+      },
+    },
+    informationNoteVersion: {
+      findFirst: ({ where }: { where: Record<string, unknown> }) => {
+        const rows = informationNoteVersions
+          .filter((row) => row.noteId === where.noteId)
+          .sort((a, b) => Number(b.versionNumber) - Number(a.versionNumber));
+        return Promise.resolve(rows[0] ?? null);
+      },
+      findMany: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          informationNoteVersions
+            .filter((row) => row.noteId === where.noteId)
+            .sort((a, b) => Number(a.versionNumber) - Number(b.versionNumber))
+            .map((row) => ({
+              ...row,
+              creator: users.find((user) => user.id === row.createdBy) ?? null,
+            })),
+        ),
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        // Mirrors @@unique([noteId, versionNumber]) — the constraint that stops
+        // two concurrent edits from both becoming "version 2".
+        if (
+          informationNoteVersions.some(
+            (row) => row.noteId === data.noteId && row.versionNumber === data.versionNumber,
+          )
+        ) {
+          throw new Error('unique constraint: noteId_versionNumber');
+        }
+        const row = { id: randomUUID(), createdAt: new Date(), ...data };
+        informationNoteVersions.push(row);
+        return Promise.resolve(row);
+      },
+    },
     slaPolicy: {
       findMany: () =>
         Promise.resolve(
@@ -648,7 +731,7 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts, accessRows };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts, informationNotes, informationNoteVersions, accessRows };
 }
 
 /**
@@ -711,6 +794,8 @@ export interface TestHarness {
   reportVersions: Array<Record<string, unknown>>;
   hbysDeliveries: Array<Record<string, unknown>>;
   hbysAttempts: Array<Record<string, unknown>>;
+  informationNotes: Array<Record<string, unknown>>;
+  informationNoteVersions: Array<Record<string, unknown>>;
   /** Jobs the fake queue received, so enqueueing can be asserted. */
   queuedJobs: Array<{ name: string; data: unknown }>;
   /** Objects the in-memory storage adapter received, keyed by storage key. */
@@ -790,6 +875,8 @@ export async function createTestHarness(
     reportVersions: prismaStub.reportVersions,
     hbysDeliveries: prismaStub.hbysDeliveries,
     hbysAttempts: prismaStub.hbysAttempts,
+    informationNotes: prismaStub.informationNotes,
+    informationNoteVersions: prismaStub.informationNoteVersions,
     queuedJobs,
     storedObjects: storage.objects,
     login,
