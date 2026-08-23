@@ -347,8 +347,28 @@ builds a fresh app on purpose, because the lock lives in Redis and state must
 not leak between cases, so it is a trade rather than a free win.
 
 The seeded accounts were rotated off the development fallback password when the
-service became internet-reachable. The current password is stored only as the
-SEED_DEFAULT_PASSWORD variable on the Railway backend service.
+service became internet-reachable. Passwords live ONLY as Railway service
+variables, never in the repository:
+
+```text
+PILOT_DOCTOR_PASSWORD
+PILOT_REPORTER_PASSWORD
+PILOT_OPERATION_PASSWORD
+PILOT_MANAGER_PASSWORD
+```
+
+The reporter / operation / manager reset for FRONTEND-004 was done as a
+targeted one-off update of those three rows, NOT through the seed's
+SEED_FORCE_PASSWORD_RESET path — that path resets every seeded user and would
+have invalidated the doctor account already in use by the frontend. Hashing
+used @node-rs/argon2 with library defaults, the same call the seed and
+AuthService make, so verify() reads the parameters off the stored hash.
+
+No PACS_* variable is set on the service; the defaults are the intended pilot
+configuration (driver=test, no viewer). With no viewer configured the endpoint
+answers available:false with PACS_VIEWER_NOT_CONFIGURED, which is the honest
+answer while no PACS exists — setting a fake viewer URL would be worse than
+setting none.
 ```
 
 ## Backend Infrastructure Notes
@@ -374,46 +394,62 @@ Current Task:
 None claimed. No P0 backend task is open.
 
 Current State:
-The backend runs on Railway and is reachable at
+Deployed and verified. Railway deployment 083e11fc, backend Online at
   https://backend-production-b2b6.up.railway.app/api/v1
-Auth (login / me / refresh / logout) and the complete clinical chain through
-HBYS_SENT were verified against that public URL.
 
-The P0 test block BACKEND-055..058 is closed: every acceptance item was
-mapped to an existing test before the task was marked DONE, and only the two
-genuinely uncovered areas got new tests (HBYS hospital scope, dictation audio
-hospital re-check). BACKEND-039 (SLA engine) is in, with the YOGUN_BAKIM
-duration left undefined on purpose.
+Verified live against that URL after the deploy:
 
-Shared contracts are now canonical in packages/shared: lock, dictation,
-report and hbys DTOs moved there and the duplicate backend-local interfaces
-were deleted. The frontend still keeps its own StudyListItem / StudyDetail
-copies — see Known Issues for the drift.
+  auth              login / me / studies for all four roles -> 200
+  study detail      returns the derived SLA object
+  slaState filter   NORMAL / WARNING / OVERDUE / COMPLETED, unknown -> 422
+  information       list / create / update / versions; history kept
+                    (2 versions after one edit); DELETE -> 404, no route
+  pacs viewer       available:false, PACS_VIEWER_NOT_CONFIGURED, UID resolved
+  pacs series       2 series
+  clinical chain    First HL7 -> Second HL7 -> images -> UNREAD -> READING ->
+                    dictation upload -> WAITING_TRANSCRIPTION -> TRANSCRIBING ->
+                    draft -> submit -> WAITING_APPROVAL -> approval ->
+                    finalize -> HBYS_PENDING -> HBYS_SENT
+  hbys failure      FAIL -> HBYS_FAILED -> manual retry -> HBYS_SENT, with the
+                    earlier attempt preserved (1 -> 2 attempts)
+  sla at completion clock froze at final approval: state COMPLETED,
+                    completedAt set, remainingSeconds frozen
+
+The mock HBYS mode was switched to FAIL for that test and restored to SUCCESS
+afterwards; confirmed SUCCESS at the end.
+
+Test data left in the pilot database by the smoke runs: studies SMOKE-* and
+SMOKEFAIL-*, and one information note on an existing study. The note cannot be
+removed — there is no delete endpoint by design.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
 backend unit tests 327 PASS
-backend e2e tests  305 PASS  (see Known Issues on repeat-run stability)
+backend e2e tests  305 PASS
+live deploy verification + clinical and HBYS smoke chains -> PASS
 
 Current Problem:
-None. The intermittent e2e failure was traced to Argon2 cost in the test
-fixture and fixed at the source; see Known Issues.
+None.
 
 Next Action:
-1. BACKEND-041 Information notes (P1) is next in the dependency order, then
-   BACKEND-019 / BACKEND-020 PACS foundation.
+1. BACKEND-045 WebSocket gateway (P1) is next in the dependency order, then
+   BACKEND-042 Image missing.
 2. DEVOPS-004 stays BLOCKED_EXTERNAL until a bucket credential exists.
-   Dictation audio is being lost on every redeploy in the meantime.
+   Dictation audio is still lost on every redeploy — including the audio the
+   smoke tests just uploaded.
 3. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL on
    the Railway backend service and redeploy. CORS is an explicit allowlist,
    so a missing origin fails the browser request, not the server.
-4. Turn DEV_TOOLS_ENABLED off before any real patient data.
+4. Turn DEV_TOOLS_ENABLED off before any real patient data. The smoke chains
+   above run entirely through dev tools, so this must not be forgotten.
 
 Deployment notes:
 - Redeploy: railway up --service backend  (or railway redeploy --service backend)
 - Logs:     railway logs --service backend
 - Variables live on the Railway service; secrets are not in the repository.
-- The seed rotates passwords only with SEED_FORCE_PASSWORD_RESET=true.
+- Dev tools are Manager-only (dev-tools.controller.ts) — the HL7 simulation
+  cannot be driven with a doctor token.
+- The dictation upload endpoint takes a multipart `file` field, not a raw body.
 ```
 
 ---
