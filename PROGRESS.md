@@ -156,16 +156,15 @@ Information notes, PACS, realtime and the manager APIs are the P1 queue.
 ## Current Backend Task
 
 ```text
-None claimed. BACKEND-055..058 and BACKEND-039 are DONE.
+None claimed. BACKEND-055..058, BACKEND-039, BACKEND-041 and
+BACKEND-019/020 are DONE.
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-041 Information notes        (P1, next to claim)
--> BACKEND-019 PACS adapter contract (P1)
--> BACKEND-020 PACS study reference  (P1)
--> BACKEND-045 WebSocket gateway     (P1)
+BACKEND-045 WebSocket gateway           (P1, next to claim)
+-> BACKEND-042 Image missing            (P1)
 -> BACKEND-040 Accelerated SLA dev mode (P2, builds on BACKEND-039)
 ```
 
@@ -393,8 +392,8 @@ copies — see Known Issues for the drift.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 315 PASS
-backend e2e tests  265 PASS  (25/27 repeat runs clean; see Known Issues)
+backend unit tests 327 PASS
+backend e2e tests  305 PASS  (see Known Issues on repeat-run stability)
 
 Current Problem:
 None. The intermittent e2e failure was traced to Argon2 cost in the test
@@ -607,31 +606,66 @@ until actual sample messages/specifications are supplied.
 
 # 12. PACS PROGRESS
 
-**Status:** NOT STARTED
+**Status:** DONE on the documented fallback (BACKEND-019, BACKEND-020).
+Orthanc itself is still BLOCKED_EXTERNAL.
 
-Pilot target:
-
-```text
-Orthanc
-```
-
-Preferred.
-
-Fallback:
+Adapter boundary (`src/integrations/contracts/pacs.contract.ts`):
 
 ```text
-TestPacsAdapter
+findStudy / listSeries / getViewerAccess / checkAvailability
 ```
 
-if Orthanc blocks P0 progress.
+`PacsService` knows no vendor detail. It resolves the study, checks hospital
+scope, asks whichever adapter the registry returns and maps the answer. Adding
+an Orthanc adapter changes no line in it.
 
-Real hospital PACS:
+Running adapter:
+
+```text
+TestPacsAdapter   PACS_DRIVER=test (default)
+```
+
+Everything it returns is derived by hashing hospitalId + accessionNumber, so a
+study always gets the same UIDs — no randomness, same rule the mock HBYS
+adapter follows.
+
+Working endpoints:
+
+```text
+GET /api/v1/studies/:studyId/pacs/viewer
+GET /api/v1/studies/:studyId/pacs/series
+```
+
+It does NOT fake a viewer. With no PACS_TEST_VIEWER_BASE_URL configured the
+answer is:
+
+```json
+{ "available": false, "viewerUrl": null, "reason": "PACS_VIEWER_NOT_CONFIGURED" }
+```
+
+A URL that does not open would tell a doctor the images are ready and leave
+them with nothing (CLAUDE.md section 30). Other cases stay distinguishable
+rather than collapsing into one error: PENDING gives IMAGES_NOT_READY, an
+integration failure gives PACS_ERROR.
+
+Technical vs clinical, kept apart (INTEGRATIONS section 27):
+
+```text
+PacsAvailability.ERROR   integration failure
+StudyStatus.IMAGE_MISSING  a doctor or Operation decision
+```
+
+Neither is ever derived from the other.
+
+`PACS_DRIVER=orthanc` fails startup on purpose — the adapter does not exist,
+and silently serving mock metadata to something that asked for a real PACS
+would be worse than refusing to boot.
+
+Real hospital PACS / a reachable Orthanc instance:
 
 ```text
 BLOCKED_EXTERNAL
 ```
-
-until credentials/specification are supplied.
 
 ---
 

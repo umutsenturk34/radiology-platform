@@ -1387,7 +1387,7 @@ tek çalışma ekranında kritik veriler var.
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-013
 
 ### Fonksiyonlar
@@ -1401,13 +1401,33 @@ tek çalışma ekranında kritik veriler var.
 
 core service vendor detayı bilmiyor.
 
+### Completed
+
+`src/integrations/contracts/pacs.contract.ts` — dört fonksiyon
+(INTEGRATIONS section 23):
+
+```text
+findStudy / listSeries / getViewerAccess / checkAvailability
+```
+
+### Acceptance: "core service vendor detayı bilmiyor"
+
+`PacsService` yalnızca study'yi çözer, hastane scope'unu doğrular, registry'den
+gelen adapter'a sorar ve yanıtı API sözleşmesine map'ler. Orthanc adapter'ı
+eklendiğinde bu dosyada **tek satır** değişmez.
+
+Ayrıca teknik `PacsAvailability` durumları sözleşmeye alındı
+(`UNKNOWN | PENDING | AVAILABLE | PARTIAL | ERROR`, section 26). `ERROR`
+bilinçli olarak klinik `IMAGE_MISSING` StudyStatus'undan ayrı tutuluyor
+(section 27): biri entegrasyon arızası, diğeri hekim/operasyon kararı. Biri
+diğerinden otomatik türetilmiyor.
 ---
 
 ## BACKEND-020 — Pilot PACS Adapter
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-019
 
 ### Preferred
@@ -1422,6 +1442,65 @@ Test metadata adapter.
 
 GET `/studies/:id/pacs/viewer` çalışıyor.
 
+### Completed
+
+Orthanc kullanılamadı — erişilebilir bir PACS örneği yok. Görevde belgelenmiş
+**fallback** uygulandı: `TestPacsAdapter`.
+
+```text
+GET /api/v1/studies/:studyId/pacs/viewer    çalışıyor
+GET /api/v1/studies/:studyId/pacs/series    çalışıyor  (API_CONTRACT 37)
+```
+
+`PACS_DRIVER=orthanc` seçilirse uygulama **başlamıyor**: adapter yok, ve
+gerçek PACS bekleyen bir ortama sessizce mock metadata servis etmek yanlış
+olurdu.
+
+### Sahte başarı üretilmiyor (CLAUDE.md section 30)
+
+Test adapter viewer URL'sini **uydurmuyor**. `PACS_TEST_VIEWER_BASE_URL`
+tanımlı değilse yanıt:
+
+```json
+{ "available": false, "viewerUrl": null, "reason": "PACS_VIEWER_NOT_CONFIGURED" }
+```
+
+Açılmayan bir URL vermek, hekime "görüntüler hazır" deyip tıklayınca hiçbir şey
+bulmasına yol açardı. E2E ortamında viewer tanımlı değil ve test tam olarak bu
+dürüst yanıtı doğruluyor.
+
+Diğer durumlar da ayrı ayrı raporlanıyor, tek bir genel hataya indirgenmiyor:
+
+```text
+PENDING -> reason: IMAGES_NOT_READY
+ERROR   -> reason: PACS_ERROR
+```
+
+### Determinizm
+
+Tüm metadata `hospitalId + accessionNumber` hash'inden türetiliyor; rastgelelik
+yok (mock HBYS ile aynı kural). Aynı study her zaman aynı UID'yi verir,
+restart'tan ve test koşusundan bağımsız olarak. Accession numaraları yalnızca
+hastane içinde tekil olduğu için UID her ikisine birden bağlı.
+
+### Study reference
+
+PACS'ın çözdüğü `studyInstanceUid` study üzerinde **boşsa** saklanıyor
+(INTEGRATIONS section 22: platform identifier tutar, görüntüyü tutmaz). Mevcut
+bir UID asla üzerine yazılmıyor — farklı bir yanıt, sessizce uygulanacak bir
+güncelleme değil, araştırılacak bir eşleşme sorunudur.
+
+### Testler
+
+```text
+src/integrations/pacs/test-pacs.adapter.spec.ts   12 test
+test/pacs.e2e-spec.ts                             13 test
+```
+
+### Açık kalan
+
+Gerçek Orthanc adapter'ı için çalışan bir PACS örneği / VPN gerekiyor —
+kullanılabilir olduğunda ayrı görev. Soyutlama bu amaçla hazır.
 ---
 
 ## FRONTEND-008 — PACS Viewer Area

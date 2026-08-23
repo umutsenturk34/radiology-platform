@@ -60,6 +60,20 @@ export interface HbysConfig {
   mockTimeoutDelayMs: number;
 }
 
+export interface PacsConfig {
+  driver: PacsDriver;
+  /**
+   * Base URL of the pilot test viewer. Empty means no viewer is configured, and
+   * the adapter then reports the study as having no viewer rather than handing
+   * out a URL that does not open (CLAUDE.md section 30).
+   */
+  testViewerBaseUrl: string;
+  /** Deterministic behaviour of the test adapter. Never random. */
+  testMode: PacsTestMode;
+  /** How long a viewer session is offered for. */
+  viewerTtlSeconds: number;
+}
+
 export interface AppConfig {
   nodeEnv: string;
   appEnv: AppEnvironment;
@@ -75,6 +89,7 @@ export interface AppConfig {
   lock: LockConfig;
   storage: StorageConfig;
   hbys: HbysConfig;
+  pacs: PacsConfig;
   /**
    * Non-fatal configuration notes surfaced at startup. Never contains a secret
    * value — only the fact that a fallback was applied.
@@ -103,6 +118,20 @@ const DEFAULT_MOCK_HBYS_TIMEOUT_DELAY_MS = 1_000;
 const DEFAULT_STORAGE_LOCAL_DIR = '.storage';
 /** Short-lived on purpose: a playback URL should not be shareable for long. */
 const DEFAULT_PLAYBACK_URL_TTL_SECONDS = 300;
+
+/** PACS drivers the pilot knows about. */
+export const PACS_DRIVERS = ['test', 'orthanc'] as const;
+export type PacsDriver = (typeof PACS_DRIVERS)[number];
+
+/**
+ * Deterministic behaviours of the test adapter, matching the technical states
+ * in docs/INTEGRATIONS.md section 26. No randomness, so the ERROR and PARTIAL
+ * paths are reproducible.
+ */
+export const PACS_TEST_MODES = ['AVAILABLE', 'PENDING', 'PARTIAL', 'ERROR'] as const;
+export type PacsTestMode = (typeof PACS_TEST_MODES)[number];
+
+const DEFAULT_PACS_VIEWER_TTL_SECONDS = 900;
 /** 50 MB — well above a normal dictation, low enough to bound memory. */
 const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -287,6 +316,29 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     problems.push('LOCK_HEARTBEAT_SECONDS must be smaller than LOCK_TTL_SECONDS');
   }
 
+  const pacsDriver = (env.PACS_DRIVER ?? 'test').trim().toLowerCase();
+  if (!PACS_DRIVERS.includes(pacsDriver as PacsDriver)) {
+    problems.push(`PACS_DRIVER must be one of ${PACS_DRIVERS.join(', ')}, received "${env.PACS_DRIVER}"`); // prettier-ignore
+  }
+  if (pacsDriver === 'orthanc') {
+    // The Orthanc adapter does not exist yet (TASK_QUEUE BACKEND-020 is on the
+    // documented test fallback). Fail loudly rather than silently serving mock
+    // metadata to something that asked for a real PACS.
+    problems.push('PACS_DRIVER=orthanc is not implemented yet; use test until an Orthanc adapter exists'); // prettier-ignore
+  }
+
+  const pacsTestMode = (env.PACS_TEST_MODE ?? 'AVAILABLE').trim().toUpperCase();
+  if (!PACS_TEST_MODES.includes(pacsTestMode as PacsTestMode)) {
+    problems.push(`PACS_TEST_MODE must be one of ${PACS_TEST_MODES.join(', ')}, received "${env.PACS_TEST_MODE}"`); // prettier-ignore
+  }
+
+  const pacsViewerTtlSeconds = parsePositiveInt(
+    env.PACS_VIEWER_TTL_SECONDS,
+    DEFAULT_PACS_VIEWER_TTL_SECONDS,
+    'PACS_VIEWER_TTL_SECONDS',
+    problems,
+  );
+
   const storageDriver = (env.OBJECT_STORAGE_DRIVER ?? 'local').trim().toLowerCase();
   if (storageDriver !== 'local' && storageDriver !== 's3') {
     problems.push(`OBJECT_STORAGE_DRIVER must be local or s3, received "${env.OBJECT_STORAGE_DRIVER}"`); // prettier-ignore
@@ -363,6 +415,12 @@ export function loadConfiguration(env: NodeJS.ProcessEnv = process.env): AppConf
     },
     lock: { ttlSeconds: lockTtlSeconds, heartbeatSeconds: lockHeartbeatSeconds },
     hbys: { retryDelaysMs, mockTimeoutDelayMs },
+    pacs: {
+      driver: pacsDriver as PacsDriver,
+      testViewerBaseUrl: env.PACS_TEST_VIEWER_BASE_URL?.trim() ?? '',
+      testMode: pacsTestMode as PacsTestMode,
+      viewerTtlSeconds: pacsViewerTtlSeconds,
+    },
     storage: {
       driver: storageDriver as StorageDriver,
       localDir: env.OBJECT_STORAGE_LOCAL_DIR?.trim() || DEFAULT_STORAGE_LOCAL_DIR,

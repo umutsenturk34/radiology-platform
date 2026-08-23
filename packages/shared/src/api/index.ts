@@ -7,3 +7,4 @@ export * from './dictation';
 export * from './report';
 export * from './hbys';
 export * from './information';
+export * from './pacs';
