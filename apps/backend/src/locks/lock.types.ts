@@ -1,4 +1,8 @@
-import type { UserRole } from '@radiology/shared';
+import type { StudyLockInfo, UserRole } from '@radiology/shared';
+
+// The client-facing lock shape is part of the shared API contract; re-exported
+// here so lock code keeps one import.
+export type { StudyLockInfo };
 
 /** What is stored in Redis under `lock:study:{studyId}`. */
 export interface StudyLock {
@@ -8,16 +12,6 @@ export interface StudyLock {
   ownerRole: UserRole;
   /** ISO 8601. */
   lockedAt: string;
-}
-
-/** Lock state as reported to a client (docs/API_CONTRACT.md section 104). */
-export interface StudyLockInfo {
-  locked: boolean;
-  ownerUserId: string | null;
-  ownerDisplayName: string | null;
-  ownerRole: UserRole | null;
-  lockedAt: string | null;
-  expiresInSeconds: number | null;
 }
 
 export interface LockOwner {

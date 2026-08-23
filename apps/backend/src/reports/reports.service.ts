@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { ReportSource, ReportStatus, StudyStatus, UserRole } from '@radiology/shared';
+import {
+  ReportSource,
+  ReportStatus,
+  StudyStatus,
+  UserRole,
+  type ReportDto,
+} from '@radiology/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowService } from '../workflow/workflow.service';
 import { LockNotOwnedException, StudyLockService } from '../locks/study-lock.service';
@@ -15,26 +21,6 @@ import {
 import { AppLogger } from '../common/logging/app-logger.service';
 import { EmptyReportException, ReportNotEditableException } from './report.errors';
 import type { AuthenticatedUser } from '../auth/auth.types';
-
-export interface ReportVersionDto {
-  id: string;
-  versionNumber: number;
-  content: string;
-  source: ReportSource;
-  status: ReportStatus;
-  createdBy: { id: string; displayName: string };
-  createdAt: string;
-  completedAt: string | null;
-  finalizedAt: string | null;
-}
-
-export interface ReportDto {
-  id: string;
-  studyId: string;
-  status: ReportStatus;
-  currentVersion: ReportVersionDto | null;
-  finalizedAt: string | null;
-}
 
 export interface StartTranscriptionResult {
   studyId: string;

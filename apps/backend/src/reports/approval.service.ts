@@ -9,6 +9,7 @@ import {
   ReportStatus,
   StudyStatus,
   UserRole,
+  type ReportDto,
 } from '@radiology/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -25,7 +26,7 @@ import {
 import { AppLogger } from '../common/logging/app-logger.service';
 import { EmptyReportException } from './report.errors';
 import { HBYS_DELIVERY_JOB, HBYS_QUEUE, type HbysDeliveryJobData } from '../queues/queue.constants';
-import { toReportDto, type ReportDto } from './reports.service';
+import { toReportDto } from './reports.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 /** 409 — the study has no completed report to approve. */

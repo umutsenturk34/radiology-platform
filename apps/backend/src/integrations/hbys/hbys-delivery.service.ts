@@ -1,7 +1,13 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
-import { ApiErrorCode, HbysDeliveryStatus, StudyStatus } from '@radiology/shared';
+import {
+  ApiErrorCode,
+  HbysDeliveryStatus,
+  StudyStatus,
+  type HbysDeliveryAttemptDto,
+  type HbysDeliveryDto,
+} from '@radiology/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowService } from '../../workflow/workflow.service';
 import { AuditService } from '../../audit/audit.service';
@@ -24,31 +30,6 @@ export class HbysNotRetryableException extends AppException {
       { currentStatus },
     );
   }
-}
-
-export interface HbysDeliveryDto {
-  id: string;
-  studyId: string;
-  reportVersionId: string;
-  status: HbysDeliveryStatus;
-  attemptCount: number;
-  lastErrorCode: string | null;
-  lastErrorMessage: string | null;
-  externalReportId: string | null;
-  queuedAt: string;
-  sentAt: string | null;
-  completedAt: string | null;
-}
-
-export interface HbysAttemptDto {
-  id: string;
-  attemptNumber: number;
-  status: HbysDeliveryStatus;
-  httpStatus: number | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  startedAt: string;
-  completedAt: string | null;
 }
 
 /**
@@ -269,7 +250,7 @@ export class HbysDeliveryService {
    * Metadata only: the response carries no report content
    * (docs/API_CONTRACT.md section 105).
    */
-  async listAttempts(user: AuthenticatedUser, deliveryId: string): Promise<HbysAttemptDto[]> {
+  async listAttempts(user: AuthenticatedUser, deliveryId: string): Promise<HbysDeliveryAttemptDto[]> {
     const delivery = await this.prisma.hbysDelivery.findUnique({ where: { id: deliveryId } });
 
     if (!delivery) {

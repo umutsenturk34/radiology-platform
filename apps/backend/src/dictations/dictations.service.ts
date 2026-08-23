@@ -2,7 +2,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { ApiErrorCode, DictationStatus, StudyStatus, UserRole } from '@radiology/shared';
+import { ApiErrorCode, DictationStatus, StudyStatus, UserRole, type DictationDto } from '@radiology/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudyLockService } from '../locks/study-lock.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
@@ -31,20 +31,6 @@ const ALLOWED_MIME_TYPES = [
   'audio/wav',
   'audio/x-wav',
 ];
-
-export interface DictationDto {
-  id: string;
-  studyId: string;
-  doctor: { id: string; displayName: string };
-  status: DictationStatus;
-  mimeType: string | null;
-  fileSize: number | null;
-  durationMs: number | null;
-  startedAt: string;
-  completedAt: string | null;
-  uploadedAt: string | null;
-  failureReason: string | null;
-}
 
 /** 409 — the recording is not in a state where this action makes sense. */
 class DictationStateException extends AppException {
