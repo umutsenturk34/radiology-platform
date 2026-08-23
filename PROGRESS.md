@@ -145,26 +145,28 @@ First HL7 -> Second HL7 -> Images Available -> UNREAD -> READING
 -> doctor final approval -> FINAL -> HBYS_PENDING -> HBYS_SENT
 against the real Railway database, Redis, object storage and BullMQ.
 The HBYS failure path (FAIL -> HBYS_FAILED -> manual retry -> HBYS_SENT)
-is verified too. Remaining P0 backend work is the test tasks; PACS, SLA,
-information notes, realtime and the manager APIs are P1.
+is verified too.
+
+The P0 test block (BACKEND-055..058) is closed and the SLA engine
+(BACKEND-039) is in. No P0 backend task is open: the only remaining P0 is
+DEVOPS-004, which is BLOCKED_EXTERNAL on a storage bucket credential.
+Information notes, PACS, realtime and the manager APIs are the P1 queue.
 ```
 
 ## Current Backend Task
 
 ```text
-BACKEND-055 (Workflow Unit Tests) — next to claim
+None claimed. BACKEND-055..058 and BACKEND-039 are DONE.
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-055 Workflow unit tests      (P0, largely covered already)
--> BACKEND-056 Permission tests      (P0)
--> BACKEND-057 HL7 integration tests (P0)
--> BACKEND-058 HBYS integration tests(P0)
--> BACKEND-039 SLA engine            (P1)
--> BACKEND-041 Information notes     (P1)
+BACKEND-041 Information notes        (P1, next to claim)
+-> BACKEND-019 PACS adapter contract (P1)
+-> BACKEND-020 PACS study reference  (P1)
 -> BACKEND-045 WebSocket gateway     (P1)
+-> BACKEND-040 Accelerated SLA dev mode (P2, builds on BACKEND-039)
 ```
 
 ## Recently Completed Backend Tasks
@@ -217,8 +219,17 @@ DEVOPS-003  Railway Redis                      DONE  (93c72db)
 ## Backend Blockers
 
 ```text
-None blocking. The earlier BLOCKED_TECHNICAL (no PostgreSQL/Redis) is RESOLVED:
-the pilot now uses the Railway "strong-courtesy" project, production environment.
+DEVOPS-004  BLOCKED_EXTERNAL — pilot object storage
+            Needs an S3-compatible bucket and its credentials. The Railway
+            project has backend + Postgres + Redis and no bucket service; no
+            S3_* variables are set and there is no s3 driver in the code, only
+            local-object-storage.adapter.ts. Backend work when a credential
+            arrives is one adapter behind the existing ObjectStorage interface.
+
+YOGUN_BAKIM SLA duration  BLOCKED_SPEC — not invented. See Known Issues.
+
+The earlier BLOCKED_TECHNICAL (no PostgreSQL/Redis) is RESOLVED: the pilot
+uses the Railway "strong-courtesy" project, production environment.
 ```
 
 ## Backend Known Issues
@@ -256,8 +267,21 @@ transaction rolled back). Now configurable via DATABASE_TRANSACTION_TIMEOUT_MS
 Normalized HL7 clinical data has no model yet; it is preserved in the audit
 metadata and is not returned by GET /studies/:id (DISCOVERED-003).
 
-StudyDetail does not yet carry lock / pacs / derived SLA state / flags —
-their models do not exist yet (DISCOVERED-004).
+StudyDetail does not yet carry lock / pacs / information flags — their models
+do not exist yet (DISCOVERED-004). The derived SLA state part of that is now
+resolved by BACKEND-039.
+
+YOGUN_BAKIM has no SLA duration and none was invented (BLOCKED_SPEC). Those
+studies carry no deadline, so every derived SLA field is null and they appear
+in no slaState list. The moment the health team supplies the duration, seeding
+one SlaPolicy row is the whole change — no code edit.
+
+The frontend keeps its OWN copies of StudyListItem / StudyDetail in
+radiology-frontend/apps/frontend/features/studies/api.ts instead of importing
+from @radiology/shared. Those copies are now behind: the sla object gained
+completedAt, remainingSeconds, overdueSeconds and state. Additive, so nothing
+breaks, but the duplication is a live drift risk and the reason the shared
+package was made canonical for lock / dictation / report / hbys contracts.
 
 The deployed pilot runs with DEV_TOOLS_ENABLED=true. That is deliberate — the
 health team tests the workflow through the mock HL7 and HBYS endpoints, and the
@@ -280,7 +304,48 @@ is an explicit allowlist, and a missing origin fails in the browser, not on the
 server, so it does not show up in backend logs as an error.
 
 Dictation audio on the deployed service is written to a container directory and
-does NOT survive a redeploy (DEVOPS-004 is still open).
+does NOT survive a redeploy. This is no longer only a risk: audio uploaded
+before an earlier redeploy now returns 404 from GET .../audio on the live
+service. DEVOPS-004 is BLOCKED_EXTERNAL pending a bucket credential.
+
+The e2e suite used to fail roughly one run in five, and the failure moved
+around (a lock assertion, a beforeEach hook, once an entire suite). It was not
+a logic bug: the fixture hashed passwords with production Argon2id cost in
+every beforeEach and every login verify, so a suite of HTTP assertions was
+CPU-bound and blew Jest's 5s default on a loaded machine. Fixed at the source —
+test-only Argon2 cost parameters, hashed once per worker instead of per test
+(the auth code under test still runs the real Argon2id path, because the cost
+parameters are encoded in the hash string). The lock e2e no longer races the
+wall clock either: LOCK_TTL_SECONDS is pinned to 600 for the suite, and TTL
+expiry semantics stay where they belong, in the unit tests with a controlled
+clock. Full e2e run time went from ~25s (135s when it failed) to ~6s.
+
+A third cause was found and fixed on top of those two: supertest leaves
+keep-alive sockets open, and Node's server.close() waits for connections to end
+rather than ending them. One survivor kept Jest alive past the last assertion.
+The harness now calls closeAllConnections() before app.close().
+
+Residual, honestly stated: 25 of 27 measured runs are green in ~6s. The other
+two took ~25s, blew a 20s beforeEach hook in the study-locks suite, and then
+would not exit. So it is the same slowdown signature as before, not a separate
+exit-only bug — the frequency dropped from about 1 in 5 to about 1 in 14, but
+it is not gone.
+
+What is known about the remaining case:
+
+```text
+--detectOpenHandles reports NO open handles in the suite
+the stuck process sits at 0% CPU holding one socket to 127.0.0.1:60720
+port 60720 is owned by VS Code (Code Helper), not by anything this repo starts
+the study-locks suite builds a full Nest app in every beforeEach (29 times)
+```
+
+That points at resource contention on this developer machine plus a descriptor
+inherited from the VS Code-spawned shell, rather than test logic. Not proven,
+and deliberately not claimed as fixed. The next thing to try, if it matters, is
+narrowing the per-test app construction in the largest suite — but that suite
+builds a fresh app on purpose, because the lock lives in Redis and state must
+not leak between cases, so it is a trade rather than a free win.
 
 The seeded accounts were rotated off the development fallback password when the
 service became internet-reachable. The current password is stored only as the
@@ -307,32 +372,42 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-None claimed. The backend is deployed and the frontend is unblocked.
+None claimed. No P0 backend task is open.
 
 Current State:
 The backend runs on Railway and is reachable at
   https://backend-production-b2b6.up.railway.app/api/v1
 Auth (login / me / refresh / logout) and the complete clinical chain through
-HBYS_SENT were verified against that public URL. Local suites are unchanged:
-303 unit and 245 e2e tests pass.
+HBYS_SENT were verified against that public URL.
+
+The P0 test block BACKEND-055..058 is closed: every acceptance item was
+mapped to an existing test before the task was marked DONE, and only the two
+genuinely uncovered areas got new tests (HBYS hospital scope, dictation audio
+hospital re-check). BACKEND-039 (SLA engine) is in, with the YOGUN_BAKIM
+duration left undefined on purpose.
+
+Shared contracts are now canonical in packages/shared: lock, dictation,
+report and hbys DTOs moved there and the duplicate backend-local interfaces
+were deleted. The frontend still keeps its own StudyListItem / StudyDetail
+copies — see Known Issues for the drift.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 303 PASS, e2e tests 245 PASS
-deployed auth + clinical smoke checks    -> PASS
+backend unit tests 315 PASS
+backend e2e tests  265 PASS  (25/27 repeat runs clean; see Known Issues)
 
 Current Problem:
-None.
+None. The intermittent e2e failure was traced to Argon2 cost in the test
+fixture and fixed at the source; see Known Issues.
 
 Next Action:
-1. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL on
+1. BACKEND-041 Information notes (P1) is next in the dependency order, then
+   BACKEND-019 / BACKEND-020 PACS foundation.
+2. DEVOPS-004 stays BLOCKED_EXTERNAL until a bucket credential exists.
+   Dictation audio is being lost on every redeploy in the meantime.
+3. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL on
    the Railway backend service and redeploy. CORS is an explicit allowlist,
    so a missing origin fails the browser request, not the server.
-2. DEVOPS-004: provision a real object storage bucket. Dictation audio
-   currently lives in the container and is lost on redeploy.
-3. Remaining P0 backend work is the test tasks BACKEND-055..058; most of what
-   they list is already covered by the existing suites, so the work is to
-   check each case and add only what is genuinely missing.
 4. Turn DEV_TOOLS_ENABLED off before any real patient data.
 
 Deployment notes:
@@ -663,32 +738,57 @@ REST polling/refetch
 
 # 17. SLA PROGRESS
 
-**Status:** NOT STARTED
+**Status:** DONE (BACKEND-039) — except the one duration nobody has defined.
 
-Known pilot defaults:
+Seeded policy:
 
 ```text
-ACIL = 120 min
-YATAN = 720 min
+ACIL   = 120 min
+YATAN  = 720 min
 NORMAL = 1440 min
-Warning = 20 min
+Warning = 20 min before the deadline
+```
+
+What the engine computes (`src/sla/sla.calculator.ts`, pure, `now` injected):
+
+```text
+deadlineAt        frozen at arrival, never recalculated (DATA_MODEL 66)
+completedAt       doctor final approval — where the clock STOPS
+remainingSeconds  seconds left; 0 once the deadline has passed
+overdueSeconds    seconds past the deadline; 0 while inside it
+state             NORMAL | WARNING | OVERDUE | COMPLETED | null
+```
+
+Two rules worth remembering:
+
+```text
+The clock stops at final approval (WORKFLOW_STATE_MACHINE 61).
+A study that goes HBYS_FAILED afterwards is NOT clinically late again —
+the counters freeze at approval. A report finalized 10 minutes late stays
+COMPLETED with overdueSeconds = 600 forever: the breach is on the record,
+but it does not keep growing.
+
+Only the warning band is read live. The deadline itself is a snapshot, so a
+policy change cannot move a historical deadline.
+```
+
+Operation finds studies at risk through the list filter (API_CONTRACT 92):
+
+```text
+GET /api/v1/studies?slaState=WARNING
+GET /api/v1/studies?slaState=OVERDUE
 ```
 
 Unresolved:
 
 ```text
-YOGUN_BAKIM exact SLA duration
+YOGUN_BAKIM exact SLA duration   BLOCKED_SPEC
 ```
 
-Status:
-
-```text
-BLOCKED_SPEC
-```
-
-only for the undefined exact duration.
-
-Other SLA work may proceed.
+NOT invented. No policy is seeded for it, so those studies carry no deadline,
+every derived field is null and they appear in no slaState list — rather than
+silently borrowing another category's duration. When the health team gives the
+number, seeding one SlaPolicy row is the entire change; no code edit.
 
 ---
 

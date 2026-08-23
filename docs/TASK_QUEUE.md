@@ -2329,7 +2329,7 @@ Operation/Manager retry yapabiliyor.
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004
 
 ### Policy
@@ -2350,6 +2350,48 @@ warning 20 min
 
 hesaplanıyor.
 
+### Completed
+
+- `src/sla/sla.calculator.ts`: saf türetme fonksiyonu; `now` parametre olarak
+  alınır, böylece tüm sınırlar (warning bandının iki ucu, deadline anı) uyku
+  veya tolerans penceresi olmadan tam olarak test edilir
+- `src/sla/sla.service.ts`: aktif `SlaPolicy` warning pencerelerini sayfa başına
+  tek sorguyla okur ve satırdan snapshot türetir
+- API'ye eklenen alanlar (`packages/shared/src/api/study.ts`):
+  `deadlineAt`, `completedAt`, `remainingSeconds`, `overdueSeconds`, `state`
+- `slaState` filtresi (`GET /studies?slaState=WARNING|OVERDUE|...`),
+  API_CONTRACT section 92'deki Operation SLA-risk kullanımı için
+
+### Sözleşme uyumu
+
+`state` değerleri API_CONTRACT section 27 ile **birebir** aynı:
+`NORMAL | WARNING | OVERDUE | COMPLETED`.
+
+Tek sapma, sözleşme örneğinde bulunmayan `completedAt` alanının eklenmiş
+olması. Gerekçe: `StudyDetail` zaten `timestamps.finalizedAt` taşıyor ama
+`StudyListItem` taşımıyor, dolayısıyla listede bir study'nin ne zaman
+tamamlandığı başka türlü görülemiyordu. Alan eklemek (kaldırmak değil)
+geriye dönük uyumlu; yine de sessiz bırakılmadı, buraya yazıldı.
+
+### Kararlar
+
+- **Saat, final onayında durur** (WORKFLOW_STATE_MACHINE section 61).
+  `HBYS_FAILED` bir study'yi klinik olarak yeniden geciktirmez: sayaçlar onay
+  anında dondurulur. Geç tamamlanan bir rapor `COMPLETED` + `overdueSeconds > 0`
+  olarak kalır — ihlal silinmez, ama süre de büyümez.
+- **Deadline snapshot'ı dokunulmaz** (DATA_MODEL section 66). Yalnızca warning
+  bandı canlı okunur; o zaten sabit bir deadline'a göreli bir gösterim eşiği.
+- **`YOGUN_BAKIM` uydurulmadı.** Süresi tanımsız (BLOCKED_SPEC), policy
+  seed'lenmiyor, dolayısıyla deadline yok → tüm türetilmiş alanlar `null` ve
+  study hiçbir SLA listesine düşmüyor. Test: `test/sla.e2e-spec.ts` "derives
+  nothing for a category with no policy".
+
+### Testler
+
+```text
+src/sla/sla.calculator.spec.ts   12 test  (sınır değerleri dahil)
+test/sla.e2e-spec.ts             14 test  (liste, detay, slaState filtresi)
+```
 ---
 
 ## BACKEND-040 — Accelerated SLA Dev Mode
@@ -2853,7 +2895,7 @@ LIST_1–LIST_6.
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-014
 
 ### Minimum Testler
@@ -2866,13 +2908,28 @@ WAITING_APPROVAL → FINAL PASS
 HBYS_FAILED → HBYS_PENDING PASS
 ```
 
+### Completed
+
+Kabul maddelerinin tamamı `src/workflow/workflow.service.spec.ts` içindeki
+merkezi geçiş tablosu testleriyle zaten karşılanıyordu; **mevcut senaryolar
+yeniden yazılmadı**:
+
+```text
+UNREAD → READING              spec:100  PASS
+UNREAD → FINAL                spec:125  REJECT
+TRANSCRIBING → WAITING_APPROVAL spec:104 PASS
+WAITING_APPROVAL → FINAL      spec:105  PASS
+HBYS_FAILED → HBYS_PENDING    spec:109  PASS
+```
+
+Ayrıca geçiş başına status history + audit yazımı `spec:173` ile doğrulanıyor.
 ---
 
 ## BACKEND-056 — Permission Tests
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-007, BACKEND-008
 
 ### Testler
@@ -2883,13 +2940,32 @@ Doctor HBYS retry → 403
 
 Unauthorized hospital → 403
 
+### Completed
+
+Üç kabul maddesi de mevcut e2e testleriyle karşılanıyordu:
+
+```text
+Reporter finalize → 403     test/approval.e2e-spec.ts:339 (it.each reporter/operation/manager)
+Doctor HBYS retry → 403     test/hbys.e2e-spec.ts:331     (it.each doctor/reporter)
+Unauthorized hospital → 403 6 suite'te HOSPITAL_ACCESS_DENIED
+```
+
+### Kapatılan gerçek boşluk
+
+HBYS uçlarındaki üç `hospitalScope.assertAllowed` çağrısının **hiç testi
+yoktu**. Eklenen `describe('hospital scope')` (test/hbys.e2e-spec.ts:424):
+
+- başka hastanenin teslimatı study ucunda görünmüyor
+- attempts ucu 403
+- manuel retry 403 **ve** teslimat durumu değişmiyor, kuyruğa job düşmüyor
+- var olmayan teslimat 403 değil 404 (varlık sızdırmıyor)
 ---
 
 ## BACKEND-057 — HL7 Integration Tests
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-012
 
 ### Testler
@@ -2900,13 +2976,24 @@ Unauthorized hospital → 403
 - wrong accession
 - patient mismatch
 
+### Completed
+
+Beş kabul maddesi de `src/integrations/hl7/hl7.service.spec.ts` içinde mevcuttu:
+
+```text
+First HL7          spec:191
+duplicate First    spec:255, 266, 280  (idempotent, state sıfırlanmıyor, audit)
+Second match       spec:332            (hospitalId + accessionNumber)
+wrong accession    spec:371
+patient mismatch   spec:382            (yanlış hastaya bağlamıyor)
+```
 ---
 
 ## BACKEND-058 — HBYS Integration Tests
 
 **Owner:** BACKEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-037
 
 ### Testler
@@ -2917,6 +3004,17 @@ Unauthorized hospital → 403
 - retry
 - manual retry
 
+### Completed
+
+Beş kabul maddesi de `test/hbys.e2e-spec.ts` içinde mevcuttu:
+
+```text
+success       :111  SUCCESS mode → HBYS_SENT
+fail          :149  kalıcı ret, retry yok
+timeout       :178  retry + bütçe bitince HBYS_FAILED
+retry         :197, :209
+manual retry  :225  (attempt geçmişi ve report version korunuyor)
+```
 ---
 
 ## FRONTEND-037 — Critical Component Tests
@@ -3128,13 +3226,35 @@ lock + BullMQ remote Redis üzerinde çalışıyor.
 
 **Owner:** DEVOPS  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** BLOCKED_EXTERNAL  
 **Depends On:** BACKEND-022
 
 ### Acceptance
 
 remote audio upload/playback.
 
+### BLOCKED_EXTERNAL
+
+**Problem:** Dictation ses dosyaları hâlâ `local` sürücüde, yani Railway
+container diskinde. Redeploy'da kayboluyorlar — bu artık teorik bir risk değil,
+**gerçekleşmiş bir kayıp**: daha önce yüklenmiş bir kaydın `GET .../audio`
+isteği canlı ortamda 404 dönüyor.
+
+**Eksik dış bağımlılık:** S3 uyumlu bir bucket ve credential'ları.
+
+```text
+Railway projesi (strong-courtesy): backend + Postgres + Redis. Bucket servisi yok.
+S3_ENDPOINT / S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY: tanımlı değil
+Kodda s3 sürücüsü: yok (yalnız local-object-storage.adapter.ts)
+```
+
+**Etki:** Pilotta ses kaydı kalıcılığı yok. Klinik zincir çalışıyor, ancak
+dikte sesi redeploy'dan sonra çalınamıyor.
+
+**Sonraki adım (kullanıcı tarafı):** bir bucket sağlanması (Cloudflare R2,
+AWS S3 veya self-hosted MinIO fark etmez). Credential geldiğinde backend
+tarafı yalnızca `ObjectStorage` arayüzüne bir s3 adaptörü eklemek; soyutlama
+BACKEND-022'de bu amaçla hazırlandı.
 ---
 
 ## DEVOPS-005 — Frontend Vercel
