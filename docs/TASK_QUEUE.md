@@ -704,7 +704,7 @@ Veritabanında henüz Study kaydı yok (HL7 BACKEND-011'de geliyor), bu yüzden
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 
 **Depends On:** FRONTEND-001, SHARED-002
 
@@ -789,7 +789,8 @@ Manager:
 - `403` API yanıtları Doctor havuzunda ve detail ekranında ortak Forbidden UX ile
   gösterilir; yetki veya hastane kapsamı istemcide değiştirilmez.
 - Lint, typecheck ve production build PASS. Dört rolün login → shell → logout
-  canlı tarayıcı kabulü tamamlanmadan görev `DONE` yapılmayacak.
+  canlı tarayıcı kabulü tamamlandı: Doctor, Reporter, Operation ve Manager
+  rollerinin her biri role shell/navigation ve logout akışında PASS verdi.
 
 ---
 

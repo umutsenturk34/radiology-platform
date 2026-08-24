@@ -335,8 +335,9 @@ durum ve arama parametreleri ile sayfalama içeriyor. Backend desteklemediği i�
 modality filtresi veya kategori/havuz sayacı üretilmedi. FRONTEND-004 bağımlılığı
 ve yeni filtrelerin canlı kabulü tamamlanmadan FRONTEND-005 DONE değildir.
 
-FRONTEND-004, yalnız mevcut rotaları gösteren role shell ve ortak 403 UX ile
-uygulandı; dört rolün canlı login → shell → logout kabulü bekleniyor.
+FRONTEND-004 DONE — Doctor, Reporter, Operation ve Manager için canlı
+login → role shell/navigation → logout kabulü PASS. Sahte route linki yok;
+backend yetkilendirmesi korunuyor ve 403 UX uygulanıyor.
 ```
 
 ## Current Frontend Task
@@ -349,14 +350,15 @@ FRONTEND-005 — Study List Foundation
 
 ## Next Recommended Frontend Task
 
-FRONTEND-004 canlı role navigation + logout kabulü.
+FRONTEND-005'in canlı filtre/sayfalama kabulü.
 
-Ardından FRONTEND-005'in canlı filtre kabulü ve FRONTEND-006 Lock UI.
+Ardından FRONTEND-006 Lock UI.
 
 ## Recently Completed Frontend Tasks
 
 ```text
 FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
+FRONTEND-004 — Role Based App Shell (commit: 898e545; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
