@@ -1085,7 +1085,7 @@ doktor GET /studies?pool=UNREAD               -> Study listede görünüyor
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 
 **Depends On:** FRONTEND-004, BACKEND-009
 
@@ -1117,8 +1117,10 @@ doktor GET /studies?pool=UNREAD               -> Study listede görünüyor
   giderildi: korumalı rotalar `refresh → me` tamamlanmadan sorgu çalıştırmaz;
   sorgu yalnız erişim tokenı bellekteyken etkinleşir. Başarısız geri yükleme veya
   `401` güvenli biçimde `/login` yönlendirmesine gider ve sorgu tekrar denenmez.
-- `FRONTEND-004` bağımlılığı ve yeni filtrelerin canlı tarayıcı kabulü tamamlanmadan
-  durum `DONE` yapılmayacak.
+- Canlı kabul PASS: auth/session restore sonrası gerçek `GET /studies` 200;
+  kategori, arama, hastane/durum filtreleri ve loading/empty/error UX doğrulandı.
+  Sayfalama yalnız backend `meta.totalPages > 1` döndürdüğünde görünür; canlı
+  havuzda yeterli kayıt yoksa sahte ek kayıt veya sayaç üretilmez.
 
 ---
 
@@ -1362,7 +1364,7 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-005, BACKEND-016
 
 ### Gösterilecek

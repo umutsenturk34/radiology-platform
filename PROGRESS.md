@@ -327,13 +327,12 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-005.
+IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-006.
 
 Doctor login ve temel GET /studies akışı canlı Railway backend ile tarayıcıda
 doğrulandı. FRONTEND-005 operasyonel havuz görünümü; gerçek kategori, hastane,
 durum ve arama parametreleri ile sayfalama içeriyor. Backend desteklemediği için
-modality filtresi veya kategori/havuz sayacı üretilmedi. FRONTEND-004 bağımlılığı
-ve yeni filtrelerin canlı kabulü tamamlanmadan FRONTEND-005 DONE değildir.
+modality filtresi veya kategori/havuz sayacı üretilmedi.
 
 FRONTEND-004 DONE — Doctor, Reporter, Operation ve Manager için canlı
 login → role shell/navigation → logout kabulü PASS. Sahte route linki yok;
@@ -343,6 +342,11 @@ FRONTEND-005 canlı kabulünde görülen, geliştirme sunucusu yeniden başladı
 token belleği boşken başlayan `GET /studies` 401 yarışı düzeltildi. Session
 restore tekilleştirildi; korumalı rota restore tamamlanana kadar bekler ve
 Studies sorgusu yalnız authenticated + access token koşulunda çalışır.
+
+FRONTEND-005 DONE — gerçek backend ile session restore sonrası 200, kategori,
+arama, hastane/durum filtreleri ve loading/empty/error UX canlı kabulü PASS.
+Sayfalama yalnız gerçek backend meta sayfası birden büyük olduğunda görünür;
+test havuzu yetersizse sahte iş verisi üretilmez.
 ```
 
 ## Current Frontend Task
@@ -350,20 +354,19 @@ Studies sorgusu yalnız authenticated + access token koşulunda çalışır.
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-005 — Study List Foundation
+FRONTEND-006 — Lock UI
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-005'in canlı filtre/sayfalama kabulü.
-
-Ardından FRONTEND-006 Lock UI.
+FRONTEND-006 için iki doktorla gerçek 423 lock kabulü.
 
 ## Recently Completed Frontend Tasks
 
 ```text
 FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
 FRONTEND-004 — Role Based App Shell (commit: 898e545; canlı acceptance PASS)
+FRONTEND-005 — Study List Foundation (commit: 5106a97; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -386,10 +389,9 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-005 için canlı doğrulama: dev server restart sonrasında mevcut refresh
-oturumu ile `/doctor/studies` doğrudan açıldığında `GET /studies` 200 olmalı;
-oturum yoksa `/login`e yönlenmeli; login sonrasında aynı istek 200 dönmeli.
-Bu kabul geçmeden FRONTEND-005 DONE yapılmayacak.
+FRONTEND-006: iki ayrı doktor oturumunda aynı gerçek UNREAD study için Doctor A
+start-reading yaptığında Doctor B'nin isteği 423 dönmeli; owner, rol ve kilit
+zamanı UI'da anlaşılır görünmeli. Bu canlı kabul geçmeden DONE yapılmayacak.
 ```
 
 ---
