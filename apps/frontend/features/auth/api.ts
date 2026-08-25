@@ -22,6 +22,8 @@ interface LoginResponse {
   user: AuthUser;
 }
 
+let sessionRestoreInFlight: Promise<CurrentUser> | undefined;
+
 export interface CurrentUser extends AuthUser {
   username: string;
   hospitals: Array<{ id: string; code: string; name: string }>;
@@ -42,17 +44,25 @@ export async function logout() {
   client.clearAccessToken();
 }
 
-export async function restoreSession() {
+async function restoreSessionRequest() {
   const client = getApiClient();
-  const refresh = await client.post<{ accessToken: string; expiresIn: number }>("/auth/refresh", undefined, {
-    retryAfterRefresh: false,
-  });
-  client.setAccessToken(refresh.accessToken);
 
   try {
+    const refresh = await client.post<{ accessToken: string; expiresIn: number }>("/auth/refresh", undefined, {
+      retryAfterRefresh: false,
+    });
+    client.setAccessToken(refresh.accessToken);
     return await client.get<CurrentUser>("/auth/me", { retryAfterRefresh: false });
   } catch (error) {
     client.clearAccessToken();
     throw error;
   }
+}
+
+export function restoreSession() {
+  sessionRestoreInFlight ??= restoreSessionRequest().finally(() => {
+    sessionRestoreInFlight = undefined;
+  });
+
+  return sessionRestoreInFlight;
 }

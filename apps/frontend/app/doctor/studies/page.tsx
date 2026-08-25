@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { STUDY_STATUSES, type PatientCategory, type StudyStatus } from "@radiology/shared";
 
@@ -9,6 +10,8 @@ import { PilotBanner } from "@/components/layout/pilot-banner";
 import { ForbiddenState } from "@/components/layout/forbidden-state";
 import { listDoctorStudies, type DoctorStudiesQuery, type StudyListItem } from "@/features/studies/api";
 import { ApiClientError } from "@/lib/api";
+import { getApiClient } from "@/lib/api";
+import { useAuthStore } from "@/features/auth/auth-store";
 
 const categories: Array<{ value: PatientCategory | undefined; label: string }> = [
   { value: undefined, label: "Tümü" },
@@ -40,13 +43,25 @@ function categoryClass(category: PatientCategory) {
 }
 
 export default function DoctorStudiesPage() {
+  const router = useRouter();
+  const authStatus = useAuthStore((state) => state.status);
+  const setAnonymous = useAuthStore((state) => state.setAnonymous);
   const [query, setQuery] = useState<DoctorStudiesQuery>({ page: 1 });
   const [searchDraft, setSearchDraft] = useState("");
   const studies = useQuery({
     queryKey: ["studies", "doctor", "unread", query],
     queryFn: () => listDoctorStudies(query),
     refetchOnMount: "always",
+    retry: false,
+    enabled: authStatus === "authenticated" && Boolean(getApiClient().getAccessToken()),
   });
+
+  useEffect(() => {
+    if (studies.error instanceof ApiClientError && studies.error.status === 401) {
+      setAnonymous();
+      router.replace("/login");
+    }
+  }, [router, setAnonymous, studies.error]);
 
   const hospitals = useMemo(() => {
     const entries = studies.data?.data ?? [];

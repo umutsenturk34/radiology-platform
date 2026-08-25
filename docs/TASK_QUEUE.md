@@ -1113,6 +1113,10 @@ doktor GET /studies?pool=UNREAD               -> Study listede görünüyor
   sağlanmadığı için üretilmedi.
 - Loading, empty ve error durumları ile sayfalama tamamlandı. Lint, typecheck ve
   production build PASS.
+- Geliştirme sunucusu yeniden başladıktan sonra oluşan oturum geri yükleme yarışı
+  giderildi: korumalı rotalar `refresh → me` tamamlanmadan sorgu çalıştırmaz;
+  sorgu yalnız erişim tokenı bellekteyken etkinleşir. Başarısız geri yükleme veya
+  `401` güvenli biçimde `/login` yönlendirmesine gider ve sorgu tekrar denenmez.
 - `FRONTEND-004` bağımlılığı ve yeni filtrelerin canlı tarayıcı kabulü tamamlanmadan
   durum `DONE` yapılmayacak.
 

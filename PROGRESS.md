@@ -338,6 +338,11 @@ ve yeni filtrelerin canlı kabulü tamamlanmadan FRONTEND-005 DONE değildir.
 FRONTEND-004 DONE — Doctor, Reporter, Operation ve Manager için canlı
 login → role shell/navigation → logout kabulü PASS. Sahte route linki yok;
 backend yetkilendirmesi korunuyor ve 403 UX uygulanıyor.
+
+FRONTEND-005 canlı kabulünde görülen, geliştirme sunucusu yeniden başladığında
+token belleği boşken başlayan `GET /studies` 401 yarışı düzeltildi. Session
+restore tekilleştirildi; korumalı rota restore tamamlanana kadar bekler ve
+Studies sorgusu yalnız authenticated + access token koşulunda çalışır.
 ```
 
 ## Current Frontend Task
@@ -381,14 +386,10 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-Read:
-AGENTS.md
-docs/TASK_QUEUE.md
-docs/FRONTEND.md
-
-Then:
-FRONTEND-004 role-based app shell'i uygula. Ardından FRONTEND-005'in kategori,
-hastane, durum, arama ve sayfalama kontrollerini canlı tarayıcıda kabul et.
+FRONTEND-005 için canlı doğrulama: dev server restart sonrasında mevcut refresh
+oturumu ile `/doctor/studies` doğrudan açıldığında `GET /studies` 200 olmalı;
+oturum yoksa `/login`e yönlenmeli; login sonrasında aynı istek 200 dönmeli.
+Bu kabul geçmeden FRONTEND-005 DONE yapılmayacak.
 ```
 
 ---
