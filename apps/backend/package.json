@@ -31,6 +31,8 @@
     "@nestjs/core": "^11.1.6",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.1.6",
+    "@nestjs/platform-socket.io": "^11.2.3",
+    "@nestjs/websockets": "^11.2.3",
     "@node-rs/argon2": "^2.1.0",
     "@prisma/client": "^6.19.3",
     "@radiology/shared": "workspace:*",
@@ -41,7 +43,8 @@
     "ioredis": "^6.0.0",
     "prisma": "^6.19.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
@@ -54,6 +57,7 @@
     "@types/node": "^22.15.3",
     "@types/supertest": "^6.0.3",
     "jest": "^30.2.0",
+    "socket.io-client": "^4.8.3",
     "supertest": "^7.1.4",
     "ts-jest": "^29.4.4",
     "ts-node": "^10.9.2",

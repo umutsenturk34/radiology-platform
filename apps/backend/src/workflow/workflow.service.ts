@@ -31,6 +31,11 @@ export interface TransitionResult {
   studyId: string;
   fromStatus: StudyStatus;
   toStatus: StudyStatus;
+  /**
+   * Carried out so a caller can emit the realtime event after its transaction
+   * commits without re-reading the study (docs/REALTIME_EVENTS.md section 77).
+   */
+  hospitalId: string;
 }
 
 /**
@@ -152,6 +157,6 @@ export class WorkflowService {
       actorUserId: context.actorUserId,
     });
 
-    return { studyId, fromStatus, toStatus: targetStatus };
+    return { studyId, fromStatus, toStatus: targetStatus, hospitalId: study.hospitalId };
   }
 }

@@ -16,6 +16,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import { LockNotOwnedException, StudyLockService } from '../locks/study-lock.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { AuditEventType } from '../audit/audit.types';
 import {
   AppException,
@@ -89,6 +90,7 @@ export class ApprovalService {
     private readonly locks: StudyLockService,
     private readonly hospitalScope: HospitalScopeService,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimeService,
     @Inject(HBYS_QUEUE) private readonly hbysQueue: Queue,
     logger: AppLogger,
   ) {
@@ -123,6 +125,17 @@ export class ApprovalService {
         entityType: 'Study',
         entityId: studyId,
       });
+
+      this.realtime.emitStudyLocked(
+        { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } },
+        {
+          ownerUserId: lock.ownerUserId,
+          ownerDisplayName: lock.ownerDisplayName,
+          ownerRole: lock.ownerRole,
+          lockedAt: lock.lockedAt,
+          lockType: 'INTERNAL',
+        },
+      );
 
       this.logger.info({ message: 'Approval started', studyId, doctorId: user.id });
 
@@ -260,6 +273,19 @@ export class ApprovalService {
     });
 
     const lockReleased = await this.locks.release(studyId, user.id).catch(() => false);
+
+    const context = { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } }; // prettier-ignore
+    this.realtime.emitStudyStatusChanged(context, {
+      fromStatus: StudyStatus.WAITING_APPROVAL,
+      toStatus: StudyStatus.WAITING_TRANSCRIPTION,
+    });
+    if (lockReleased) {
+      this.realtime.emitStudyUnlocked(context, {
+        previousOwnerUserId: user.id,
+        previousOwnerRole: user.role,
+        reason: 'WORKFLOW_COMPLETED',
+      });
+    }
 
     this.logger.info({ message: 'Report returned to reporter', studyId, doctorId: user.id });
 
@@ -412,6 +438,24 @@ export class ApprovalService {
           reason: error instanceof Error ? error.message : 'unknown error',
         });
       });
+
+    const context = { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } }; // prettier-ignore
+    // FINAL is passed through inside the transaction on the way to
+    // HBYS_PENDING, so the committed status is what gets reported.
+    this.realtime.emitStudyStatusChanged(context, {
+      fromStatus: StudyStatus.WAITING_APPROVAL,
+      toStatus: StudyStatus.HBYS_PENDING,
+    });
+    this.realtime.emitStudyUnlocked(context, {
+      previousOwnerUserId: user.id,
+      previousOwnerRole: user.role,
+      reason: 'WORKFLOW_COMPLETED',
+    });
+    this.realtime.emitHbysDeliveryPending(context, {
+      deliveryId: result.delivery.id,
+      reportVersionId: result.finalVersion.id,
+      queuedAt: new Date().toISOString(),
+    });
 
     this.logger.info({
       message: 'Report finalized',

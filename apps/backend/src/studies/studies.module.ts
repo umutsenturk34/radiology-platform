@@ -9,6 +9,7 @@ import { WorkflowModule } from '../workflow/workflow.module';
 import { LocksModule } from '../locks/locks.module';
 import { DictationsModule } from '../dictations/dictations.module';
 import { SlaModule } from '../sla/sla.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 /**
  * Study reads (TASK_QUEUE BACKEND-009), the images-available event
@@ -20,7 +21,7 @@ import { SlaModule } from '../sla/sla.module';
  * shadowed by the wildcard parameter.
  */
 @Module({
-  imports: [AuthModule, WorkflowModule, LocksModule, DictationsModule, SlaModule],
+  imports: [AuthModule, WorkflowModule, LocksModule, DictationsModule, SlaModule, RealtimeModule],
   controllers: [StudyActionsController, StudiesController],
   providers: [StudiesService, StudyImagesService, StudyActionsService],
   exports: [StudiesService, StudyImagesService, StudyActionsService],

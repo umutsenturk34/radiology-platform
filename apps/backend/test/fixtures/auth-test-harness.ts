@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
+import { RealtimeMonitorService } from '../../src/realtime/realtime-monitor.service';
 import { loadConfiguration } from '../../src/config/configuration';
 import { AppLogger } from '../../src/common/logging/app-logger.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -240,6 +241,7 @@ export async function buildTestUsers(): Promise<StoredUser[]> {
 /** In-memory Redis with the commands StudyLockService uses. */
 export function createRedisClientStub() {
   const store = new Map<string, { value: string; expiresAt: number }>();
+  const zsets = new Map<string, Map<string, number>>();
 
   const isLive = (key: string): boolean => {
     const entry = store.get(key);
@@ -254,11 +256,13 @@ export function createRedisClientStub() {
   return {
     store,
     client: {
-      set: (key: string, value: string, _px: string, ttlMs: string | number, mode?: string) => {
+      set: (key: string, value: string, unit: string, ttl: string | number, mode?: string) => {
         const live = isLive(key);
         if (mode === 'NX' && live) return Promise.resolve(null);
         if (mode === 'XX' && !live) return Promise.resolve(null);
-        store.set(key, { value, expiresAt: Date.now() + Number(ttlMs) });
+        // Locks use PX (milliseconds), the SLA announce-once markers use EX.
+        const ttlMs = unit?.toUpperCase() === 'EX' ? Number(ttl) * 1000 : Number(ttl);
+        store.set(key, { value, expiresAt: Date.now() + ttlMs });
         return Promise.resolve('OK');
       },
       get: (key: string) =>
@@ -284,6 +288,40 @@ export function createRedisClientStub() {
         return Promise.resolve(1);
       },
       ping: () => Promise.resolve('PONG'),
+
+      // Sorted-set commands back the lock expiry index the realtime sweeper
+      // reconciles against (RealtimeMonitorService).
+      zadd: (key: string, score: number | string, member: string) => {
+        const set = zsets.get(key) ?? new Map<string, number>();
+        const added = set.has(member) ? 0 : 1;
+        set.set(member, Number(score));
+        zsets.set(key, set);
+        return Promise.resolve(added);
+      },
+      zrem: (key: string, member: string) => {
+        const set = zsets.get(key);
+        const removed = set?.delete(member) ? 1 : 0;
+        return Promise.resolve(removed);
+      },
+      zrangebyscore: (
+        key: string,
+        min: string | number,
+        max: string | number,
+        ..._rest: unknown[]
+      ) => {
+        const set = zsets.get(key);
+        if (!set) return Promise.resolve([] as string[]);
+
+        const lower = min === '-inf' ? -Infinity : Number(min);
+        const upper = max === '+inf' ? Infinity : Number(max);
+
+        return Promise.resolve(
+          [...set.entries()]
+            .filter(([, score]) => score >= lower && score <= upper)
+            .sort((a, b) => a[1] - b[1])
+            .map(([member]) => member),
+        );
+      },
     },
   };
 }
@@ -595,6 +633,8 @@ export function createPrismaStub(
       },
     },
     informationNoteVersion: {
+      count: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(informationNoteVersions.filter((row) => row.noteId === where.noteId).length),
       findFirst: ({ where }: { where: Record<string, unknown> }) => {
         const rows = informationNoteVersions
           .filter((row) => row.noteId === where.noteId)
@@ -781,6 +821,8 @@ export function createRedisStub(withWorkingClient = false) {
 
 export interface TestHarness {
   app: INestApplication;
+  /** Bound port when the harness was created with `listen: true`. */
+  port: number;
   users: StoredUser[];
   sessions: StoredSession[];
   studies: StoredStudy[];
@@ -820,6 +862,8 @@ export async function createTestHarness(
     studies?: StoredStudy[];
     /** Provide a working in-memory Redis so lock endpoints can be exercised. */
     withRedis?: boolean;
+    /** Bind a real port, so a Socket.IO client can connect. */
+    listen?: boolean;
   } = {},
 ): Promise<TestHarness> {
   const users = await buildTestUsers();
@@ -851,12 +895,24 @@ export async function createTestHarness(
     .useValue(queueStub)
     .overrideProvider(HbysDeliveryWorker)
     .useValue({ onModuleInit: () => undefined, onApplicationShutdown: () => Promise.resolve() })
+    // The realtime sweeper runs on a timer. Left alive it would fire mid-test
+    // and emit SLA events nobody asked for; its own behaviour is covered by
+    // realtime-monitor.service.spec.ts with a controlled clock.
+    .overrideProvider(RealtimeMonitorService)
+    .useValue({ onModuleInit: () => undefined, onModuleDestroy: () => undefined, sweep: () => Promise.resolve() })
     .compile();
 
   const app = moduleRef.createNestApplication({ logger: false });
   const config = loadConfiguration({ ...process.env, LOG_LEVEL: 'error' });
   configureApp(app, config, new AppLogger('error'));
-  await app.init();
+
+  // A websocket client needs a real port; HTTP-only suites stay on init() so
+  // they do not pay for a listening socket they never use.
+  if (options.listen) {
+    await app.listen(0);
+  } else {
+    await app.init();
+  }
 
   const login = (email: string, password = TEST_PASSWORD): request.Test =>
     request(app.getHttpServer()).post('/api/v1/auth/login').send({ email, password });
@@ -879,6 +935,7 @@ export async function createTestHarness(
     informationNoteVersions: prismaStub.informationNoteVersions,
     queuedJobs,
     storedObjects: storage.objects,
+    port: options.listen ? (app.getHttpServer().address() as { port: number }).port : 0,
     login,
     accessTokenFor: async (email: string) => {
       const response = await login(email).expect(200);

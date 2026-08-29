@@ -2721,7 +2721,7 @@ UNREAD
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-001
 
 ### Minimum Events
@@ -2734,6 +2734,82 @@ UNREAD
 - HBYS failed
 - SLA warning
 - information added
+
+### Completed
+
+```text
+RealtimeGateway         Socket.IO, namespace /realtime
+RealtimeService         domain servislerinin gördüğü tek arayüz
+RealtimeMonitorService  saate bağlı iki event için sweeper
+packages/shared/src/realtime/  canonical event sözleşmeleri
+```
+
+### Minimum Events — hepsi gerçek workflow'dan üretiliyor
+
+```text
+status changed      WorkflowService geçişini yapan action servisleri
+locked              start-reading, start-approval
+unlocked            release / force-release / workflow tamamlanması / TTL
+waiting approval    submit-report -> yalnız atanmış Doctor'ın user room'u
+HBYS sent           worker success
+HBYS failed         worker, retry bütçesi bittiğinde
+SLA warning         sweeper (deadline eşiği geçince)
+information added   note create
+```
+
+Ek olarak sözleşmede tanımlı olan `hbys.delivery.pending`,
+`information.updated` ve `sla.overdue` de yayınlanıyor.
+
+### Uydurma yok
+
+Her event, gerçekleşmiş bir DB değişikliğinden türüyor. Sweeper bile durum
+üretmiyor: sadece **gerçekten yok olmuş** bir lock key'ini ve **gerçekten
+geçmiş** bir deadline sütununu okuyor.
+
+### Auth ve scope
+
+- Kimlik doğrulama **handshake middleware'inde**. Bağlanıp sonra atmak yerine
+  el sıkışma reddediliyor; yetkisiz istemci hiç bağlanmış sayılmıyor.
+- Token doğrulama + kullanıcı çözümleme, `JwtAuthGuard`'ın yaptığı **aynı iki
+  çağrı**. Realtime güvenliği REST'ten gevşek olamaz (REALTIME_EVENTS 81), bu
+  yüzden REST'in güvenliği yeniden yazılmadı, tekrar kullanıldı.
+- Deaktive hesabın token'ı bağlanamıyor (kullanıcı DB'den çözülüyor).
+- Room'lara sunucu alıyor: `user:` / `role:` / `hospital:`. Study room'a
+  katılım `study.join` komutuyla ve **sunucu yetkilendirmesiyle** oluyor;
+  UUID bilmek erişim değil. Var olmayan study ile yetkisiz study aynı yanıtı
+  alıyor, hangi id'lerin var olduğu sızmıyor.
+- Cross-hospital izolasyonu e2e'de doğrulanıyor.
+- Bağlantı, access token'ın exp'inde kapatılıyor. Hastane erişimi bağlantı
+  başına bir kez çözüldüğü için, uzun ömürlü bir soket eski izinlerle
+  yayın almaya devam edemesin diye pencere token ömrüyle sınırlanıyor.
+
+### Reconnect ve duplicate
+
+- Sunucu tarafında oturum durumu yok: room'lar her bağlantıda DB'den yeniden
+  kuruluyor, reconnect ilk bağlantıyla aynı yoldan geçiyor.
+- Her event `eventId` taşıyor; istemci tekrarı eleyebilir.
+- Hospital + study room'ları çakışsa da Socket.IO tek kopya gönderiyor;
+  e2e bunu doğruluyor.
+- SLA uyarısı Redis'te `SET NX` işaretçisiyle bir kez yayınlanıyor — 15
+  saniyelik sweeper aksi halde saatlerce dakikada dört alarm üretirdi.
+- Retry edilebilir HBYS denemesi event üretmiyor; yalnız bütçe bitince
+  `hbys.delivery.failed` çıkıyor. Her denemeyi duyurmak Operation'a alarmı
+  görmezden gelmeyi öğretirdi.
+
+### Transaction sırası
+
+Event'ler **commit sonrası** yayınlanıyor (REALTIME_EVENTS 76/77).
+`WorkflowService.transition` çağıranın transaction'ı içinde de çalışabildiği
+için emisyon oraya konmadı; `TransitionResult` artık `hospitalId` döndürüyor ve
+her action servisi kendi transaction'ı bittikten sonra yayınlıyor.
+
+### Testler
+
+```text
+src/realtime/realtime.service.spec.ts          13 test (envelope + targeting)
+src/realtime/realtime-monitor.service.spec.ts   9 test (TTL + SLA eşikleri)
+test/realtime.e2e-spec.ts                      19 test (gerçek soket)
+```
 
 ---
 

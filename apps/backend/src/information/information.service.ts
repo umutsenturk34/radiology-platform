@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { AuditEventType } from '../audit/audit.types';
 import { ForbiddenAppException, NotFoundAppException } from '../common/errors/app.exception';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -29,6 +30,7 @@ export class InformationService {
     private readonly prisma: PrismaService,
     private readonly hospitalScope: HospitalScopeService,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async listForStudy(user: AuthenticatedUser, studyId: string): Promise<InformationNoteDto[]> {
@@ -94,6 +96,23 @@ export class InformationService {
       return created;
     });
 
+    // Metadata only: a hospital room is wider than the set of people entitled
+    // to read the note, so the content stays behind REST (section 51).
+    this.realtime.emitInformationAdded(
+      {
+        studyId: study.id,
+        hospitalId: study.hospitalId,
+        actor: { userId: user.id, role: user.role as UserRole },
+      },
+      {
+        noteId: note.id,
+        authorUserId: user.id,
+        authorDisplayName: await this.displayNameFor(user.id),
+        authorRole: user.role as UserRole,
+        createdAt: note.createdAt.toISOString(),
+      },
+    );
+
     return {
       id: note.id,
       content: note.currentContent,
@@ -158,6 +177,24 @@ export class InformationService {
       return row;
     });
 
+    const versionCount = await this.prisma.informationNoteVersion.count({
+      where: { noteId: note.id },
+    });
+
+    this.realtime.emitInformationUpdated(
+      {
+        studyId: note.studyId,
+        hospitalId: note.study.hospitalId,
+        actor: { userId: user.id, role: user.role as UserRole },
+      },
+      {
+        noteId: note.id,
+        updatedByUserId: user.id,
+        updatedAt: updated.updatedAt.toISOString(),
+        versionCount,
+      },
+    );
+
     return {
       id: updated.id,
       content: updated.currentContent,
@@ -184,6 +221,14 @@ export class InformationService {
       createdBy: { id: version.creator.id, displayName: displayName(version.creator) },
       createdAt: version.createdAt.toISOString(),
     }));
+  }
+
+  private async displayNameFor(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    return user ? displayName(user) : '';
   }
 
   /** Knowing a study UUID is not access (docs/API_CONTRACT.md section 29). */

@@ -13,6 +13,7 @@ import { WorkflowService } from '../../workflow/workflow.service';
 import { AuditService } from '../../audit/audit.service';
 import { AuditEventType } from '../../audit/audit.types';
 import { HospitalScopeService } from '../../auth/hospital-scope.service';
+import { RealtimeService } from '../../realtime/realtime.service';
 import { AppException, NotFoundAppException } from '../../common/errors/app.exception';
 import { AppLogger } from '../../common/logging/app-logger.service';
 import { HBYS_ADAPTER, type HbysAdapter } from '../contracts/hbys.contract';
@@ -53,6 +54,7 @@ export class HbysDeliveryService {
     private readonly hospitalScope: HospitalScopeService,
     @Inject(HBYS_ADAPTER) private readonly adapter: HbysAdapter,
     @Inject(HBYS_QUEUE) private readonly queue: Queue,
+    private readonly realtime: RealtimeService,
     config: ConfigService,
     logger: AppLogger,
   ) {
@@ -216,6 +218,27 @@ export class HbysDeliveryService {
     });
 
     await this.enqueue(deliveryId);
+
+    this.realtime.emitStudyStatusChanged(
+      {
+        studyId: delivery.studyId,
+        hospitalId: delivery.hospitalId,
+        actor: { userId: user.id, role: user.role },
+      },
+      { fromStatus: StudyStatus.HBYS_FAILED, toStatus: StudyStatus.HBYS_PENDING },
+    );
+    this.realtime.emitHbysDeliveryPending(
+      {
+        studyId: delivery.studyId,
+        hospitalId: delivery.hospitalId,
+        actor: { userId: user.id, role: user.role },
+      },
+      {
+        deliveryId,
+        reportVersionId: delivery.reportVersionId,
+        queuedAt: new Date().toISOString(),
+      },
+    );
 
     this.logger.info({ message: 'HBYS delivery manually retried', deliveryId, by: user.id });
 
@@ -382,7 +405,13 @@ export class HbysDeliveryService {
   }
 
   private async recordSuccess(
-    delivery: { id: string; studyId: string; hospitalId: string; attemptCount: number },
+    delivery: {
+      id: string;
+      studyId: string;
+      hospitalId: string;
+      reportVersionId: string;
+      attemptCount: number;
+    },
     attemptNumber: number,
     startedAt: Date,
     completedAt: Date,
@@ -432,6 +461,20 @@ export class HbysDeliveryService {
       );
     });
 
+    this.realtime.emitHbysDeliverySent(
+      { studyId: delivery.studyId, hospitalId: delivery.hospitalId },
+      {
+        deliveryId: delivery.id,
+        reportVersionId: delivery.reportVersionId,
+        sentAt: completedAt.toISOString(),
+        ...(externalReportId ? { externalReportId } : {}),
+      },
+    );
+    this.realtime.emitStudyStatusChanged(
+      { studyId: delivery.studyId, hospitalId: delivery.hospitalId },
+      { fromStatus: StudyStatus.HBYS_PENDING, toStatus: StudyStatus.HBYS_SENT },
+    );
+
     this.logger.info({
       message: 'HBYS delivery sent',
       deliveryId: delivery.id,
@@ -440,7 +483,7 @@ export class HbysDeliveryService {
   }
 
   private async recordFailure(
-    delivery: { id: string; studyId: string; hospitalId: string },
+    delivery: { id: string; studyId: string; hospitalId: string; reportVersionId: string },
     input: {
       attemptNumber: number;
       startedAt: Date;
@@ -504,6 +547,28 @@ export class HbysDeliveryService {
         );
       }
     });
+
+    // A retryable attempt is not a failure anyone needs to act on yet; the
+    // study is still HBYS_PENDING and the queue will try again. Announcing
+    // every attempt would train Operation to ignore the alert.
+    if (!input.willRetry) {
+      this.realtime.emitHbysDeliveryFailed(
+        { studyId: delivery.studyId, hospitalId: delivery.hospitalId },
+        {
+          deliveryId: delivery.id,
+          reportVersionId: delivery.reportVersionId,
+          failedAt: input.completedAt.toISOString(),
+          errorCode: input.errorCode,
+          message: input.errorMessage,
+          attemptCount: input.attemptNumber,
+          retryable: false,
+        },
+      );
+      this.realtime.emitStudyStatusChanged(
+        { studyId: delivery.studyId, hospitalId: delivery.hospitalId },
+        { fromStatus: StudyStatus.HBYS_PENDING, toStatus: StudyStatus.HBYS_FAILED },
+      );
+    }
 
     this.logger[input.willRetry ? 'warn' : 'error']({
       message: input.willRetry ? 'HBYS delivery attempt failed; will retry' : 'HBYS delivery failed',

@@ -156,15 +156,14 @@ Information notes, PACS, realtime and the manager APIs are the P1 queue.
 ## Current Backend Task
 
 ```text
-None claimed. BACKEND-055..058, BACKEND-039, BACKEND-041 and
-BACKEND-019/020 are DONE.
+None claimed. BACKEND-055..058, BACKEND-039, BACKEND-041, BACKEND-019/020
+and BACKEND-045 are DONE.
 ```
 
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-045 WebSocket gateway           (P1, next to claim)
--> BACKEND-042 Image missing            (P1)
+BACKEND-042 Image missing               (P1, next to claim)
 -> BACKEND-040 Accelerated SLA dev mode (P2, builds on BACKEND-039)
 ```
 
@@ -782,27 +781,63 @@ until API/specification/access is supplied.
 
 # 16. REALTIME PROGRESS
 
-**Status:** NOT STARTED
-
-Target:
+**Status:** DONE (BACKEND-045)
 
 ```text
-NestJS Socket.IO
-+
-Frontend central socket client
+RealtimeGateway         Socket.IO on /realtime
+RealtimeService         the only realtime API domain services see
+RealtimeMonitorService  sweeper for the two clock-driven events
+packages/shared/src/realtime/   canonical event contracts
 ```
 
-Minimum event set defined in:
+Events, all derived from real committed state:
 
 ```text
-docs/REALTIME_EVENTS.md
+study.status.changed      every workflow transition
+study.locked              start-reading, start-approval
+study.unlocked            release / force-release / workflow done / TTL expiry
+study.waiting_approval    submit-report, to the assigned doctor's room only
+hbys.delivery.pending     finalize and manual retry
+hbys.delivery.sent        worker success
+hbys.delivery.failed      worker, only once the retry budget is spent
+sla.warning / sla.overdue sweeper, when a real deadline threshold passes
+information.added/updated note create and edit
 ```
 
-Fallback if deployment blocks realtime:
+Security, and why it is not a second implementation:
 
 ```text
-REST polling/refetch
+Auth runs as handshake middleware, so an unauthorized client never connects
+rather than connecting and being kicked a moment later.
+It calls the same two things JwtAuthGuard calls — verifyAccessToken, then
+resolveAuthenticatedUser — so realtime cannot be looser than REST.
+Rooms are assigned by the server: user / role / hospital on connect.
+study.join is authorized server-side; knowing a UUID is not access, and a
+nonexistent study answers exactly like an unauthorized one.
+The connection closes at the access token's expiry, because hospital access is
+resolved once per connection and a socket must not outlive its permissions.
 ```
+
+Duplicate and reconnect handling:
+
+```text
+Every event carries an eventId a client can deduplicate on.
+Hospital and study rooms overlap; Socket.IO still delivers one copy (asserted).
+No server-side session: rooms are rebuilt from the database on every connect,
+so a reconnect takes the same path as a first connection.
+An SLA threshold announces once, claimed with Redis SET NX. A 15s sweeper would
+otherwise raise the same warning four times a minute for hours.
+A retryable HBYS attempt emits nothing; only the final failure does.
+```
+
+Emission ordering: events are emitted after commit. `WorkflowService.transition`
+can run inside a caller's transaction, so the emit does not live there —
+`TransitionResult` now carries `hospitalId` and each action service emits once
+its own transaction has returned.
+
+Known limit: the sweeper assumes a single instance. With several backend
+instances each would sweep, so the lock-expiry event would be emitted more than
+once; the SLA half is already deduplicated through Redis.
 
 ---
 

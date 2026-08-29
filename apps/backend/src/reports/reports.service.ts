@@ -12,6 +12,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import { LockNotOwnedException, StudyLockService } from '../locks/study-lock.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { AuditEventType } from '../audit/audit.types';
 import {
   ForbiddenAppException,
@@ -59,6 +60,7 @@ export class ReportsService {
     private readonly locks: StudyLockService,
     private readonly hospitalScope: HospitalScopeService,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimeService,
     logger: AppLogger,
   ) {
     this.logger = logger.child(ReportsService.name);
@@ -123,6 +125,11 @@ export class ReportsService {
 
         return created;
       });
+
+      this.realtime.emitStudyStatusChanged(
+        { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } },
+        { fromStatus: StudyStatus.WAITING_TRANSCRIPTION, toStatus: StudyStatus.TRANSCRIBING },
+      );
 
       this.logger.info({ message: 'Transcription started', studyId, reporterId: user.id });
 
@@ -277,6 +284,29 @@ export class ReportsService {
 
     const lockReleased = await this.locks.release(studyId, user.id).catch(() => false);
 
+    const context = { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } }; // prettier-ignore
+    this.realtime.emitStudyStatusChanged(context, {
+      fromStatus: StudyStatus.TRANSCRIBING,
+      toStatus: StudyStatus.WAITING_APPROVAL,
+    });
+    if (lockReleased) {
+      this.realtime.emitStudyUnlocked(context, {
+        previousOwnerUserId: user.id,
+        previousOwnerRole: user.role,
+        reason: 'WORKFLOW_COMPLETED',
+      });
+    }
+    // The doctor who owns this study gets a personal event; nobody else's
+    // approval queue is affected (REALTIME_EVENTS section 29).
+    if (study.assignedDoctorId) {
+      this.realtime.emitStudyWaitingApproval(context, {
+        doctorId: study.assignedDoctorId,
+        reportId: report.id,
+        reportVersionId: version.id,
+        submittedAt: new Date().toISOString(),
+      });
+    }
+
     this.logger.info({ message: 'Report submitted', studyId, reporterId: user.id });
 
     return {
@@ -365,7 +395,7 @@ export class ReportsService {
   private async loadStudyInScope(user: AuthenticatedUser, studyId: string) {
     const study = await this.prisma.study.findUnique({
       where: { id: studyId },
-      select: { id: true, hospitalId: true, patientId: true, status: true },
+      select: { id: true, hospitalId: true, patientId: true, status: true, assignedDoctorId: true },
     });
 
     if (!study) {

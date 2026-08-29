@@ -14,6 +14,7 @@ import { DictationsModule } from './dictations/dictations.module';
 import { ReportsModule } from './reports/reports.module';
 import { StudiesModule } from './studies/studies.module';
 import { InformationModule } from './information/information.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { QueuesModule } from './queues/queues.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { DevToolsModule } from './dev-tools/dev-tools.module';
@@ -45,6 +46,7 @@ import { DevToolsModule } from './dev-tools/dev-tools.module';
     ReportsModule,
     StudiesModule,
     InformationModule,
+    RealtimeModule,
     QueuesModule,
     IntegrationsModule,
     DevToolsModule,

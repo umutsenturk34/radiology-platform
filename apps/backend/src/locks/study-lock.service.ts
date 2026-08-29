@@ -50,6 +50,16 @@ end
 return 0
 `;
 
+/**
+ * Index of live locks, scored by when each one expires.
+ *
+ * Redis drops an expired key silently, so nothing would otherwise notice that
+ * a lock ended and the users waiting on that study would keep seeing it as
+ * held. This index gives a sweeper something to reconcile against
+ * (docs/REALTIME_EVENTS.md section 25, reason TTL_EXPIRED).
+ */
+const LOCK_INDEX_KEY = 'lock:study:index';
+
 /** Extend only the owner's own lock, for the same reason. */
 const HEARTBEAT_SCRIPT = `
 if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -120,6 +130,7 @@ export class StudyLockService {
     );
 
     if (stored === 'OK') {
+      await this.indexLock(studyId);
       this.logger.info({ message: 'Study lock acquired', studyId, ownerUserId: owner.userId });
       return { lock, alreadyOwned: false };
     }
@@ -132,6 +143,7 @@ export class StudyLockService {
         client.set(key, JSON.stringify(lock), 'PX', this.ttlMs(), 'NX'),
       );
       if (retry === 'OK') {
+        await this.indexLock(studyId);
         this.logger.info({ message: 'Study lock acquired', studyId, ownerUserId: owner.userId });
         return { lock, alreadyOwned: false };
       }
@@ -144,6 +156,7 @@ export class StudyLockService {
 
     if (existing.ownerUserId === owner.userId) {
       await this.run(() => client.set(key, JSON.stringify(existing), 'PX', this.ttlMs(), 'XX'));
+      await this.indexLock(studyId);
       return { lock: existing, alreadyOwned: true };
     }
 
@@ -179,6 +192,8 @@ export class StudyLockService {
       throw new LockNotOwnedException({ studyId });
     }
 
+    await this.indexLock(studyId);
+
     return { expiresInSeconds: this.ttlSeconds };
   }
 
@@ -201,6 +216,9 @@ export class StudyLockService {
     );
 
     if (removed === 1) {
+      // Dropped here so the sweeper does not later report a TTL expiry for a
+      // lock that was released deliberately.
+      await this.unindexLock(studyId);
       this.logger.info({ message: 'Study lock released', studyId, ownerUserId: userId });
       return true;
     }
@@ -221,6 +239,7 @@ export class StudyLockService {
     if (!existing) return null;
 
     await this.run(() => this.client().del(lockKey(studyId)));
+    await this.unindexLock(studyId);
 
     this.logger.warn({
       message: 'Study lock force released',
@@ -229,6 +248,52 @@ export class StudyLockService {
     });
 
     return existing;
+  }
+
+  /**
+   * Studies whose indexed lock has passed its expiry and is really gone.
+   *
+   * Removes what it returns, so a caller emits one TTL_EXPIRED event per lock.
+   * A heartbeat that extended a lock leaves the key alive: that entry is
+   * re-scored instead of reported, which is why an extended lock is never
+   * announced as expired.
+   */
+  async takeExpired(limit = 100): Promise<string[]> {
+    const client = this.client();
+    const now = Date.now();
+
+    const candidates = await this.run(() =>
+      client.zrangebyscore(LOCK_INDEX_KEY, '-inf', now, 'LIMIT', 0, limit),
+    );
+
+    const expired: string[] = [];
+
+    for (const studyId of candidates ?? []) {
+      const stillHeld = await this.run(() => client.pttl(lockKey(studyId)));
+
+      if (typeof stillHeld === 'number' && stillHeld > 0) {
+        // Extended by a heartbeat after it was indexed; put the real expiry back.
+        await this.run(() => client.zadd(LOCK_INDEX_KEY, now + stillHeld, studyId));
+        continue;
+      }
+
+      await this.run(() => client.zrem(LOCK_INDEX_KEY, studyId));
+      expired.push(studyId);
+    }
+
+    return expired;
+  }
+
+  private async indexLock(studyId: string): Promise<void> {
+    // Index failures must never fail the lock itself: the lock is the safety
+    // guarantee, the index only drives a notification.
+    await this.run(() =>
+      this.client().zadd(LOCK_INDEX_KEY, Date.now() + this.ttlMs(), studyId),
+    ).catch(() => undefined);
+  }
+
+  private async unindexLock(studyId: string): Promise<void> {
+    await this.run(() => this.client().zrem(LOCK_INDEX_KEY, studyId)).catch(() => undefined);
   }
 
   async getLock(studyId: string): Promise<StudyLock | null> {

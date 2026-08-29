@@ -156,6 +156,9 @@ describe('WorkflowService.transition', () => {
       studyId: 'study-1',
       fromStatus: StudyStatus.UNREAD,
       toStatus: StudyStatus.READING,
+      // Returned so the caller can address the realtime event after its
+      // transaction commits without re-reading the study.
+      hospitalId: 'hospital-1',
     });
     expect(studies[0].status).toBe(StudyStatus.READING);
     expect(history).toHaveLength(1);

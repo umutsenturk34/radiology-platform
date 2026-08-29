@@ -14,6 +14,7 @@ import { TestPacsAdapter } from './pacs/test-pacs.adapter';
 import { PacsService } from './pacs/pacs.service';
 import { PacsController } from './pacs/pacs.controller';
 import { IntegrationRegistryService } from './integration-registry.service';
+import { RealtimeModule } from '../realtime/realtime.module';
 
 /**
  * Integration boundary (docs/INTEGRATIONS.md section 3).
@@ -24,7 +25,7 @@ import { IntegrationRegistryService } from './integration-registry.service';
  * hospital-specific adapter means registering it here; no core service changes.
  */
 @Module({
-  imports: [WorkflowModule, AuthModule],
+  imports: [WorkflowModule, AuthModule, RealtimeModule],
   controllers: [HbysController, PacsController],
   providers: [
     MockHl7Adapter,

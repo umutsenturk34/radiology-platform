@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuditEventType } from '../audit/audit.types';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { DictationsService } from '../dictations/dictations.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import {
   AppException,
   ForbiddenAppException,
@@ -65,6 +66,7 @@ export class StudyActionsService {
     private readonly audit: AuditService,
     private readonly hospitalScope: HospitalScopeService,
     private readonly dictations: DictationsService,
+    private readonly realtime: RealtimeService,
     logger: AppLogger,
   ) {
     this.logger = logger.child(StudyActionsService.name);
@@ -137,6 +139,21 @@ export class StudyActionsService {
           },
           tx,
         );
+      });
+
+      // Emitted only now: the transaction has committed, so the event
+      // describes state that really exists (REALTIME_EVENTS section 76).
+      const context = { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } }; // prettier-ignore
+      this.realtime.emitStudyLocked(context, {
+        ownerUserId: lock.ownerUserId,
+        ownerDisplayName: lock.ownerDisplayName,
+        ownerRole: lock.ownerRole,
+        lockedAt: lock.lockedAt,
+        lockType: 'INTERNAL',
+      });
+      this.realtime.emitStudyStatusChanged(context, {
+        fromStatus: StudyStatus.UNREAD,
+        toStatus: StudyStatus.READING,
       });
 
       this.logger.info({ message: 'Reading started', studyId, doctorId: user.id });
@@ -232,6 +249,21 @@ export class StudyActionsService {
     // another doctor take a study that is still READING if the commit failed.
     const lockReleased = await this.locks.release(studyId, user.id).catch(() => false);
 
+    const context = { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } }; // prettier-ignore
+    // READ is passed through in the same transaction, so the pair of
+    // transitions is reported as the one move the reporter queue cares about.
+    this.realtime.emitStudyStatusChanged(context, {
+      fromStatus: StudyStatus.READING,
+      toStatus: StudyStatus.WAITING_TRANSCRIPTION,
+    });
+    if (lockReleased) {
+      this.realtime.emitStudyUnlocked(context, {
+        previousOwnerUserId: user.id,
+        previousOwnerRole: user.role,
+        reason: 'WORKFLOW_COMPLETED',
+      });
+    }
+
     this.logger.info({ message: 'Reading completed', studyId, doctorId: user.id });
 
     return {
@@ -272,6 +304,11 @@ export class StudyActionsService {
         entityType: 'Study',
         entityId: studyId,
       });
+
+      this.realtime.emitStudyUnlocked(
+        { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } },
+        { previousOwnerUserId: user.id, previousOwnerRole: user.role, reason: 'USER_RELEASED' },
+      );
     }
 
     return { released };
@@ -311,6 +348,20 @@ export class StudyActionsService {
         lockedAt: previous?.lockedAt ?? null,
       },
     });
+
+    if (previous) {
+      // Not its own event type: a force release is an unlock with a reason
+      // (REALTIME_EVENTS section 27). The waiting user's screen unblocks the
+      // same way it would after a normal release.
+      this.realtime.emitStudyUnlocked(
+        { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } },
+        {
+          previousOwnerUserId: previous.ownerUserId,
+          previousOwnerRole: previous.ownerRole,
+          reason: 'FORCE_RELEASED',
+        },
+      );
+    }
 
     this.logger.warn({
       message: 'Study lock force released',
