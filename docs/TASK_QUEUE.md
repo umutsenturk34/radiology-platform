@@ -1364,7 +1364,7 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-005, BACKEND-016
 
 ### Gösterilecek
@@ -1378,6 +1378,13 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 423 response anlaşılır gösteriliyor.
 
+### Canlı Acceptance (2026-08-29)
+
+- Doctor A gerçek bir study için `start-reading` çağrısında 200 aldı; study
+  `READING` durumuna geçti ve lock sahibi olarak göründü.
+- Doctor B aynı study üzerinde 423 `STUDY_LOCKED` aldı; UI lock sahibini, rolünü
+  ve kilit durumunu gösterdi. Doctor B okumaya geçemedi.
+
 ---
 
 # 17. DOCTOR WORKSPACE
@@ -1388,7 +1395,7 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS  
 **Depends On:** FRONTEND-006
 
 ### Bölümler

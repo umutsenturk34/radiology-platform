@@ -327,7 +327,7 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-006.
+IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-007.
 
 Doctor login ve temel GET /studies akışı canlı Railway backend ile tarayıcıda
 doğrulandı. FRONTEND-005 operasyonel havuz görünümü; gerçek kategori, hastane,
@@ -347,6 +347,10 @@ FRONTEND-005 DONE — gerçek backend ile session restore sonrası 200, kategori
 arama, hastane/durum filtreleri ve loading/empty/error UX canlı kabulü PASS.
 Sayfalama yalnız gerçek backend meta sayfası birden büyük olduğunda görünür;
 test havuzu yetersizse sahte iş verisi üretilmez.
+
+FRONTEND-006 DONE — iki doktorla aynı gerçek study üzerinde canlı lock kabulü
+PASS: Doctor A 200 ile okumaya geçti; Doctor B 423 `STUDY_LOCKED` aldı ve UI
+sahip, rol ve kilit durumunu gösterdi.
 ```
 
 ## Current Frontend Task
@@ -354,12 +358,12 @@ test havuzu yetersizse sahte iş verisi üretilmez.
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-006 — Lock UI
+FRONTEND-007 — Doctor Study Workspace
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-006 için iki doktorla gerçek 423 lock kabulü.
+FRONTEND-007: gerçek StudyDetail ve lock sözleşmesiyle doktor workspace.
 
 ## Recently Completed Frontend Tasks
 
@@ -367,6 +371,7 @@ FRONTEND-006 için iki doktorla gerçek 423 lock kabulü.
 FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
 FRONTEND-004 — Role Based App Shell (commit: 898e545; canlı acceptance PASS)
 FRONTEND-005 — Study List Foundation (commit: 5106a97; canlı acceptance PASS)
+FRONTEND-006 — Lock UI (commit: bc39d06; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -389,9 +394,9 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-006: iki ayrı doktor oturumunda aynı gerçek UNREAD study için Doctor A
-start-reading yaptığında Doctor B'nin isteği 423 dönmeli; owner, rol ve kilit
-zamanı UI'da anlaşılır görünmeli. Bu canlı kabul geçmeden DONE yapılmayacak.
+FRONTEND-007: canlı backend'in gerçek StudyDetail ve lock yanıtlarına göre
+workspace'i tamamla. PACS, clinical information veya Information endpointi
+hazır değilse UI'da veri üretme; bağımlılığı açıkça kaydet.
 ```
 
 ---
