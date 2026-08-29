@@ -390,65 +390,63 @@ the internal hostnames and the TCP proxies can be removed.
 
 ```text
 Current Task:
-None claimed. No P0 backend task is open.
+None claimed.
 
 Current State:
-Deployed and verified. Railway deployment 083e11fc, backend Online at
+Deployed and verified. Railway deployment 45124f81, backend Online at
   https://backend-production-b2b6.up.railway.app/api/v1
+WebSocket namespace: /realtime (Socket.IO, token in the handshake auth)
 
-Verified live against that URL after the deploy:
+Verified live over a real socket after the deploy:
 
-  auth              login / me / studies for all four roles -> 200
-  study detail      returns the derived SLA object
-  slaState filter   NORMAL / WARNING / OVERDUE / COMPLETED, unknown -> 422
-  information       list / create / update / versions; history kept
-                    (2 versions after one edit); DELETE -> 404, no route
-  pacs viewer       available:false, PACS_VIEWER_NOT_CONFIGURED, UID resolved
-  pacs series       2 series
-  clinical chain    First HL7 -> Second HL7 -> images -> UNREAD -> READING ->
-                    dictation upload -> WAITING_TRANSCRIPTION -> TRANSCRIBING ->
-                    draft -> submit -> WAITING_APPROVAL -> approval ->
-                    finalize -> HBYS_PENDING -> HBYS_SENT
-  hbys failure      FAIL -> HBYS_FAILED -> manual retry -> HBYS_SENT, with the
-                    earlier attempt preserved (1 -> 2 attempts)
-  sla at completion clock froze at final approval: state COMPLETED,
-                    completedAt set, remainingSeconds frozen
+  anonymous connect      refused at the handshake (SOCKET_UNAUTHORIZED)
+  invalid token          refused at the handshake
+  authenticated connect  two doctors connected concurrently
+  study.join             authorized -> ok; unknown study -> STUDY_ROOM_ACCESS_DENIED
+  study.status.changed   UNREAD -> READING, delivered with an eventId
+  study.locked           reached the SECOND doctor, so the room targeting works
+  study.unlocked         reason USER_RELEASED
+  information.added      delivered with the note id and WITHOUT the content
 
-The mock HBYS mode was switched to FAIL for that test and restored to SUCCESS
-afterwards; confirmed SUCCESS at the end.
-
-Test data left in the pilot database by the smoke runs: studies SMOKE-* and
-SMOKEFAIL-*, and one information note on an existing study. The note cannot be
-removed — there is no delete endpoint by design.
+Every one of those came from a real REST action, not from a test emitter.
 
 Last Successful Command:
 pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 327 PASS
-backend e2e tests  305 PASS
-live deploy verification + clinical and HBYS smoke chains -> PASS
+backend unit tests 349 PASS
+backend e2e tests  324 PASS  (two consecutive clean runs)
+live websocket smoke over the public URL -> PASS
 
 Current Problem:
 None.
 
 Next Action:
-1. BACKEND-045 WebSocket gateway (P1) is next in the dependency order, then
-   BACKEND-042 Image missing.
-2. DEVOPS-004 stays BLOCKED_EXTERNAL until a bucket credential exists.
-   Dictation audio is still lost on every redeploy — including the audio the
-   smoke tests just uploaded.
-3. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL on
-   the Railway backend service and redeploy. CORS is an explicit allowlist,
-   so a missing origin fails the browser request, not the server.
-4. Turn DEV_TOOLS_ENABLED off before any real patient data. The smoke chains
-   above run entirely through dev tools, so this must not be forgotten.
+1. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
+   dev mode, which the sweeper now makes testable.
+2. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
+   the service. Dictation audio is still lost on every redeploy.
+3. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL and
+   redeploy. This now matters for the websocket too, not only for REST.
+4. Turn DEV_TOOLS_ENABLED off before any real patient data.
+
+Frontend contract gaps for FRONTEND-007 / FRONTEND-009:
+- StudyDetail has no `clinicalData` (no model yet, DISCOVERED-003) and no
+  `flags` object. API_CONTRACT defines `flags` twice with contradictory field
+  lists (section 26 vs 28), so it was not invented; the contract has to pick
+  one shape first.
+- StudyDetail carries no `lock` object. The lock is a separate call,
+  GET /studies/:id/lock, plus the study.locked / study.unlocked events.
+- The frontend still keeps its own StudyListItem / StudyDetail copies instead
+  of importing from @radiology/shared, and they are now behind by the SLA
+  fields. Realtime event types are canonical in @radiology/shared/realtime;
+  importing them rather than re-declaring avoids the same drift.
+- Dictation upload is multipart with a `file` field, not a raw body
+  (FRONTEND-009).
 
 Deployment notes:
-- Redeploy: railway up --service backend  (or railway redeploy --service backend)
+- Redeploy: railway up --service backend
 - Logs:     railway logs --service backend
 - Variables live on the Railway service; secrets are not in the repository.
-- Dev tools are Manager-only (dev-tools.controller.ts) — the HL7 simulation
-  cannot be driven with a doctor token.
-- The dictation upload endpoint takes a multipart `file` field, not a raw body.
+- Dev tools are Manager-only; the HL7 simulation needs a manager token.
 ```
 
 ---
