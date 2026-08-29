@@ -1,39 +1,33 @@
-import { type PatientCategory, type StudyStatus } from "@radiology/shared";
+import {
+  StudyPool,
+  type DictationStatus,
+  type StudyDetail,
+  type StudyListItem,
+  type StudyListQuery,
+  type StudyStatus,
+} from "@radiology/shared";
 
 import { getApiClient } from "@/lib/api";
 
-/** Mirrors the currently deployed GET /studies response contract. */
-export interface StudyListItem {
-  id: string;
-  accessionNumber: string;
-  patient: { id: string; displayName: string; externalPatientId: string };
-  hospital: { id: string; code: string; shortName: string | null };
-  studyDescription: string | null;
-  modality: string | null;
-  category: PatientCategory;
-  status: StudyStatus;
-  arrivalAt: string | null;
-  sla: { deadlineAt: string | null };
-}
+export type { StudyDetail, StudyListItem } from "@radiology/shared";
 
-export interface DoctorStudiesQuery {
-  category?: PatientCategory;
-  hospitalId?: string;
-  status?: StudyStatus;
-  search?: string;
+export type DoctorStudiesQuery = Pick<StudyListQuery, "category" | "hospitalId" | "status" | "search"> & {
   page: number;
-}
+};
 
-export interface StudyDetail {
+/** GET /studies/:studyId/dictations sözleşmesinin mevcut backend cevabı. */
+export interface StudyDictation {
   id: string;
-  accessionNumber: string;
-  status: StudyStatus;
-  category: PatientCategory;
-  patient: { id: string; displayName: string; externalPatientId: string; birthDate: string | null; gender: string | null };
-  hospital: { id: string; code: string; name: string };
-  study: { description: string | null; modality: string | null; studyInstanceUid: string | null; externalOrderId: string | null; externalProtocolId: string | null };
-  arrivalAt: string | null;
-  sla: { deadlineAt: string | null };
+  studyId: string;
+  doctor: { id: string; displayName: string };
+  status: DictationStatus;
+  mimeType: string | null;
+  fileSize: number | null;
+  durationMs: number | null;
+  startedAt: string;
+  completedAt: string | null;
+  uploadedAt: string | null;
+  failureReason: string | null;
 }
 
 export interface StudyLockInfo {
@@ -54,7 +48,7 @@ export interface StartReadingResult {
 
 export function listDoctorStudies(query: DoctorStudiesQuery) {
   const params = new URLSearchParams({
-    pool: "UNREAD",
+    pool: StudyPool.UNREAD,
     page: String(query.page),
     pageSize: "25",
     sortBy: "arrivalAt",
@@ -71,6 +65,10 @@ export function listDoctorStudies(query: DoctorStudiesQuery) {
 
 export function getStudyDetail(studyId: string) {
   return getApiClient().get<StudyDetail>(`/studies/${studyId}`);
+}
+
+export function listStudyDictations(studyId: string) {
+  return getApiClient().get<StudyDictation[]>(`/studies/${studyId}/dictations`);
 }
 
 export function getStudyLock(studyId: string) {

@@ -351,6 +351,10 @@ test havuzu yetersizse sahte iş verisi üretilmez.
 FRONTEND-006 DONE — iki doktorla aynı gerçek study üzerinde canlı lock kabulü
 PASS: Doctor A 200 ile okumaya geçti; Doctor B 423 `STUDY_LOCKED` aldı ve UI
 sahip, rol ve kilit durumunu gösterdi.
+
+FRONTEND-007 IN_PROGRESS — workspace gerçek shared StudyDetail, lock ve dikte
+listesi sözleşmelerini kullanacak şekilde genişletildi. PACS, clinical bilgi ve
+Information notları backend tarafından henüz sağlanmadığı için veri üretilmez.
 ```
 
 ## Current Frontend Task
@@ -372,6 +376,7 @@ FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
 FRONTEND-004 — Role Based App Shell (commit: 898e545; canlı acceptance PASS)
 FRONTEND-005 — Study List Foundation (commit: 5106a97; canlı acceptance PASS)
 FRONTEND-006 — Lock UI (commit: bc39d06; canlı acceptance PASS)
+FRONTEND-007 — Doctor Study Workspace (kısmi implementation; canlı acceptance bekliyor)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```

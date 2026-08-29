@@ -1413,6 +1413,18 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 tek çalışma ekranında kritik veriler var.
 
+### Implementation Note (2026-08-29)
+
+- Workspace gerçek shared `StudyDetail` sözleşmesiyle hasta, tetkik, assignment,
+  workflow zamanı ve SLA deadline verisini gösterir; lock ve gerçek dikte listesi
+  ayrı API çağrılarından alınır.
+- PACS viewer, clinical information ve Information notes için backend alanı veya
+  endpointi hazır olmadığı için içerik uydurulmaz; ekran bunların kullanılabilir
+  olmadığını açıkça belirtir.
+- FRONTEND-009 kayıt alma akışı henüz eklenmediğinden dikte bölümü yalnız mevcut
+  backend kayıtlarını gösterir. Canlı workspace kabulü tamamlanmadan `DONE`
+  yapılmayacak.
+
 ---
 
 # 18. PACS
