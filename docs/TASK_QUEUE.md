@@ -1419,13 +1419,15 @@ tek çalışma ekranında kritik veriler var.
   `StudyPacsViewer`, `StudyPacsSeries` ve `InformationNoteDto` sözleşmelerini
   kullanır. Hasta, tetkik, atama, workflow, SLA, lock, dikte, PACS ve
   Information bölümleri yalnız gerçek API yanıtlarından beslenir.
-- `clinicalData` için backend sözleşmesi teslim edilmedi. Bu alan için değer
-  üretilmez; bağımlılık kullanıcıya açıkça gösterilir.
+- `StudyDetail.clinicalData` ile `flags` ve detail lock canonical handoff ile
+  eklendi; klinik veri `null` ise ekran bunu hastanenin göndermediği gerçek
+  durum olarak gösterir. Viewer `available=false` ise sahte viewer üretilmez.
 - FRONTEND-009 kayıt alma akışı henüz eklenmediğinden dikte bölümü yalnız mevcut
   backend kayıtlarını gösterir. Canlı workspace kabulü tamamlanmadan `DONE`
   yapılmayacak.
-- Canlı browser acceptance 2026-08-31 tarihinde mevcut Railway test doktoru
-  kimlik bilgisi `401 INVALID_CREDENTIALS` döndüğü için tamamlanamadı.
+- Canlı browser acceptance henüz tamamlanmadı: 2026-08-31 tarihinde denenen
+  önceki varsayılan test parolası `401 INVALID_CREDENTIALS` döndü; güncel
+  credential değeri frontend tarafıyla paylaşılmadı.
 
 ---
 

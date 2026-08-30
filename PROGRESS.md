@@ -354,9 +354,10 @@ sahip, rol ve kilit durumunu gösterdi.
 
 FRONTEND-007 IN_PROGRESS — backend handoff'taki canonical shared StudyDetail,
 StudyLockInfo, DictationDto, PACS ve Information sözleşmeleri kullanıldı.
-Workspace gerçek study detail, SLA, lock, dikte listesi, PACS viewer/seri ve
-Information notlarını ayrı REST çağrılarıyla gösterir. clinicalData için backend
-sözleşmesi bulunmadığından sahte klinik veri yoktur.
+Workspace gerçek study detail, clinicalData, flags, SLA, detail lock, dikte
+listesi, PACS viewer/seri ve Information notlarını REST'ten gösterir. clinical
+bilgi `null` ve PACS viewer `available=false` gerçek durum olarak sunulur;
+sahte business verisi üretilmez.
 ```
 
 ## Current Frontend Task
@@ -386,10 +387,10 @@ Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ## Frontend Blockers
 
 ```text
-Railway health endpointi 200 ve database/Redis UP döndü. Ancak varsayılan test
-doktoru hesabı canlı ortamda `401 INVALID_CREDENTIALS` döndürüyor; bu nedenle
-authenticated browser acceptance tamamlanamadı. Güncel test kimlik bilgisi veya
-test hesabı reseti gerektiği için FRONTEND-007 IN_PROGRESS kalır.
+Railway deploy SUCCESS bilgisi alındı. Ancak browser'da denenen önceki varsayılan
+parola `doctor@test.local` için hâlâ `401 INVALID_CREDENTIALS` döndürüyor;
+güncel parolanın değeri frontend tarafıyla paylaşılmadı. Authenticated browser
+acceptance tamamlanana kadar FRONTEND-007 IN_PROGRESS kalır.
 ```
 
 ## Frontend Known Issues
@@ -404,10 +405,10 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-007: geçerli Railway test doktoru kimlik bilgisi ile browser'da giriş
-yap; gerçek study açıp detail, SLA, lock, dikte, PACS ve Information alanlarını
-doğrula. Bu acceptance PASS olmadan task'ı DONE yapma. Sonraki P0 sırası:
-FRONTEND-009, ardından FRONTEND-011.
+FRONTEND-007: güncel Railway test doktoru parolasıyla browser'da giriş yap;
+gerçek study açıp detail, clinicalData, flags, SLA, lock, dikte, PACS ve
+Information alanlarını doğrula. Bu acceptance PASS olmadan task'ı DONE yapma.
+Sonraki P0 sırası: FRONTEND-009, ardından FRONTEND-011.
 ```
 
 ---
