@@ -7,6 +7,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PilotBanner } from "@/components/layout/pilot-banner";
 import { ForbiddenState } from "@/components/layout/forbidden-state";
 import { ApiClientError } from "@/lib/api";
+import { BrowserAudioRecorder } from "@/features/studies/browser-audio-recorder";
+import { useAuthStore } from "@/features/auth/auth-store";
 import {
   getStudyDetail,
   getStudyPacsViewer,
@@ -37,6 +39,7 @@ export default function DoctorStudyWorkspacePage() {
   const params = useParams<{ studyId: string }>();
   const studyId = params.studyId;
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((state) => state.user?.id);
   const detail = useQuery({ queryKey: ["study", studyId], queryFn: () => getStudyDetail(studyId) });
   const dictations = useQuery({ queryKey: ["study", studyId, "dictations"], queryFn: () => listStudyDictations(studyId), retry: false });
   const pacsViewer = useQuery({ queryKey: ["study", studyId, "pacs", "viewer"], queryFn: () => getStudyPacsViewer(studyId), retry: false });
@@ -77,6 +80,7 @@ export default function DoctorStudyWorkspacePage() {
           <div className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Atama ve iş akışı</h2><dl className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-slate-500">Doktor</dt><dd>{study.assignment.doctor?.displayName ?? "Atanmamış"}</dd></div><div><dt className="text-slate-500">Raportör</dt><dd>{study.assignment.reporter?.displayName ?? "Atanmamış"}</dd></div><div><dt className="text-slate-500">Görüntüler hazır</dt><dd>{formatDate(study.timestamps.imagesAvailableAt)}</dd></div><div><dt className="text-slate-500">Okuma başlangıcı</dt><dd>{formatDate(study.timestamps.readingStartedAt)}</dd></div></dl></div>
           <div className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Dikte kayıtları</h2>{dictations.isLoading ? <p className="mt-2 text-sm">Dikte kayıtları yükleniyor…</p> : null}{dictations.isError ? <p className="mt-2 text-sm text-red-800" role="alert">Dikte kayıtları alınamadı.</p> : null}{dictations.data?.length === 0 ? <p className="mt-2 text-sm text-slate-600">Bu study için henüz dikte kaydı yok.</p> : null}{dictations.data?.length ? <ul className="mt-2 space-y-2 text-sm">{dictations.data.map((dictation) => <li className="rounded border border-slate-200 p-2" key={dictation.id}><p className="font-medium">{dictation.status} · {dictation.doctor.displayName}</p><p className="text-slate-600">Başlangıç: {formatDate(dictation.startedAt)} · Süre: {formatDuration(dictation.durationMs)}</p>{dictation.failureReason ? <p className="mt-1 text-red-800">Hata: {dictation.failureReason}</p> : null}</li>)}</ul> : null}<p className="mt-3 text-xs text-slate-500">Tarayıcıdan kayıt alma FRONTEND-009 kapsamında eklenir.</p></div>
         </section>
+        <BrowserAudioRecorder enabled={study.status === "READING" && study.lock.locked && study.lock.ownerUserId === currentUserId} onCompleted={() => void queryClient.invalidateQueries({ queryKey: ["study", studyId, "dictations"] })} studyId={studyId} />
         <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Çalışma kilidi</h2><p className="mt-2 text-sm">{study.lock.locked ? `Kilitli · ${study.lock.ownerDisplayName ?? "Bilinmeyen sahip"} (${study.lock.ownerRole ?? "—"}) · ${formatDate(study.lock.lockedAt)}` : "Kilit yok"}</p>{study.lock.locked && study.lock.expiresInSeconds !== null ? <p className="mt-1 text-xs text-slate-600">Kalan kilit süresi: {formatSeconds(study.lock.expiresInSeconds)}</p> : null}</section>
         <section className="grid gap-4 lg:grid-cols-3">
           <section className="rounded-lg border border-slate-300 bg-white p-4 text-sm"><h2 className="font-semibold">Klinik bilgi</h2>{study.clinicalData ? <dl className="mt-2 space-y-2"><div><dt className="text-slate-500">Ön tanı</dt><dd>{study.clinicalData.preDiagnosis ?? "Gönderilmedi"}</dd></div><div><dt className="text-slate-500">İstem nedeni</dt><dd>{study.clinicalData.requestReason ?? "Gönderilmedi"}</dd></div><div><dt className="text-slate-500">Hasta şikâyeti</dt><dd>{study.clinicalData.patientComplaint ?? "Gönderilmedi"}</dd></div><div><dt className="text-slate-500">İsteyen hekim / bölüm</dt><dd>{study.clinicalData.requestingPhysician ?? "Gönderilmedi"} · {study.clinicalData.department ?? "Gönderilmedi"}</dd></div></dl> : <p className="mt-2 text-slate-600">Hastane bu tetkik için klinik bilgi göndermedi.</p>}</section>

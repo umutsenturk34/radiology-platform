@@ -1,6 +1,7 @@
 import {
   StudyPool,
   type AcquiredLockInfo,
+  DICTATION_UPLOAD_FIELD,
   type DictationDto,
   type InformationNoteDto,
   type StudyLockInfo,
@@ -50,6 +51,17 @@ export function getStudyDetail(studyId: string) {
 
 export function listStudyDictations(studyId: string) {
   return getApiClient().get<DictationDto[]>(`/studies/${studyId}/dictations`);
+}
+
+export function createStudyDictation(studyId: string, mimeType: string) {
+  return getApiClient().post<DictationDto>(`/studies/${studyId}/dictations`, { mimeType });
+}
+
+export function uploadStudyDictation(dictationId: string, audio: Blob, durationMs: number) {
+  const form = new FormData();
+  form.append(DICTATION_UPLOAD_FIELD.FILE, audio, "dictation.webm");
+  form.append(DICTATION_UPLOAD_FIELD.DURATION_MS, String(durationMs));
+  return getApiClient().postForm<DictationDto>(`/dictations/${dictationId}/upload`, form);
 }
 
 export function getStudyLock(studyId: string) {

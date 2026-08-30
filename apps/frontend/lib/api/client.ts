@@ -149,6 +149,11 @@ export class ApiClient {
     });
   }
 
+  /** Multipart requests must leave their content type to the browser boundary. */
+  postForm<T>(path: string, body: FormData, options?: Omit<ApiRequestOptions, "body">) {
+    return this.request<T>(path, { ...options, method: "POST", body });
+  }
+
   put<T>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, "body">) {
     return this.request<T>(path, {
       ...options,
