@@ -2,3 +2,7 @@ export * from './errors';
 export * from './pagination';
 export * from './envelope';
 export * from './study';
+export * from './lock';
+export * from './dictation';
+export * from './information';
+export * from './pacs';

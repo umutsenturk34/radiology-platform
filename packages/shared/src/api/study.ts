@@ -9,7 +9,7 @@
  */
 
 import type { PatientCategory } from '../enums/patient';
-import type { StudyStatus } from '../enums/study';
+import type { SlaState, StudyStatus } from '../enums/study';
 import type { SortOrder } from './pagination';
 
 export interface StudyPatientSummary {
@@ -53,6 +53,10 @@ export interface StudyAssignmentSummary {
  */
 export interface StudySlaSnapshot {
   deadlineAt: string | null;
+  completedAt: string | null;
+  remainingSeconds: number | null;
+  overdueSeconds: number | null;
+  state: SlaState | null;
 }
 
 export interface StudyListItem {

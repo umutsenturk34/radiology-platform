@@ -35,3 +35,15 @@ export const StudyStatus = {
 export type StudyStatus = (typeof StudyStatus)[keyof typeof StudyStatus];
 
 export const STUDY_STATUSES: readonly StudyStatus[] = Object.values(StudyStatus);
+
+/** Derived SLA state; independent from the clinical workflow status. */
+export const SlaState = {
+  NORMAL: 'NORMAL',
+  WARNING: 'WARNING',
+  OVERDUE: 'OVERDUE',
+  COMPLETED: 'COMPLETED',
+} as const;
+
+export type SlaState = (typeof SlaState)[keyof typeof SlaState];
+
+export const SLA_STATES: readonly SlaState[] = Object.values(SlaState);

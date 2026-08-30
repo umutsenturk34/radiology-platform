@@ -1,6 +1,11 @@
 import {
   StudyPool,
-  type DictationStatus,
+  type AcquiredLockInfo,
+  type DictationDto,
+  type InformationNoteDto,
+  type StudyLockInfo,
+  type StudyPacsSeries,
+  type StudyPacsViewer,
   type StudyDetail,
   type StudyListItem,
   type StudyListQuery,
@@ -15,34 +20,10 @@ export type DoctorStudiesQuery = Pick<StudyListQuery, "category" | "hospitalId" 
   page: number;
 };
 
-/** GET /studies/:studyId/dictations sözleşmesinin mevcut backend cevabı. */
-export interface StudyDictation {
-  id: string;
-  studyId: string;
-  doctor: { id: string; displayName: string };
-  status: DictationStatus;
-  mimeType: string | null;
-  fileSize: number | null;
-  durationMs: number | null;
-  startedAt: string;
-  completedAt: string | null;
-  uploadedAt: string | null;
-  failureReason: string | null;
-}
-
-export interface StudyLockInfo {
-  locked: boolean;
-  ownerUserId: string | null;
-  ownerDisplayName: string | null;
-  ownerRole: string | null;
-  lockedAt: string | null;
-  expiresInSeconds: number | null;
-}
-
 export interface StartReadingResult {
   studyId: string;
   status: StudyStatus;
-  lock: { ownerUserId: string; ownerRole: string; lockedAt: string; heartbeatIntervalSeconds: number };
+  lock: AcquiredLockInfo;
   readingStartedAt: string;
 }
 
@@ -68,11 +49,23 @@ export function getStudyDetail(studyId: string) {
 }
 
 export function listStudyDictations(studyId: string) {
-  return getApiClient().get<StudyDictation[]>(`/studies/${studyId}/dictations`);
+  return getApiClient().get<DictationDto[]>(`/studies/${studyId}/dictations`);
 }
 
 export function getStudyLock(studyId: string) {
   return getApiClient().get<StudyLockInfo>(`/studies/${studyId}/lock`);
+}
+
+export function getStudyPacsViewer(studyId: string) {
+  return getApiClient().get<StudyPacsViewer>(`/studies/${studyId}/pacs/viewer`);
+}
+
+export function listStudyPacsSeries(studyId: string) {
+  return getApiClient().get<StudyPacsSeries[]>(`/studies/${studyId}/pacs/series`);
+}
+
+export function listStudyInformation(studyId: string) {
+  return getApiClient().get<InformationNoteDto[]>(`/studies/${studyId}/information`);
 }
 
 export function startReading(studyId: string) {
