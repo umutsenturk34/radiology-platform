@@ -10,6 +10,7 @@
 
 import type { PatientCategory } from '../enums/patient';
 import type { SlaState, StudyStatus } from '../enums/study';
+import type { StudyLockInfo } from './lock';
 import type { SortOrder } from './pagination';
 
 export interface StudyPatientSummary {
@@ -59,6 +60,25 @@ export interface StudySlaSnapshot {
   state: SlaState | null;
 }
 
+/** Operational indicators derived from committed study data at read time. */
+export interface StudyFlags {
+  hasInformation: boolean;
+  imageMissing: boolean;
+  hasRevisionRequest: boolean;
+  hasUnreportedSiblingStudy: boolean;
+}
+
+/** Clinical context supplied by HL7, or null when the hospital supplied none. */
+export interface StudyClinicalData {
+  preDiagnosis: string | null;
+  requestReason: string | null;
+  patientComplaint: string | null;
+  previousStudyInfo: string | null;
+  requestingPhysician: string | null;
+  department: string | null;
+  additionalData: Record<string, unknown> | null;
+}
+
 export interface StudyListItem {
   id: string;
   accessionNumber: string;
@@ -71,6 +91,7 @@ export interface StudyListItem {
   arrivalAt: string | null;
   sla: StudySlaSnapshot;
   assignment: StudyAssignmentSummary;
+  flags: StudyFlags;
 }
 
 /** Workflow timestamps recorded on the Study row. */
@@ -99,9 +120,12 @@ export interface StudyDetail {
     externalOrderId: string | null;
     externalProtocolId: string | null;
   };
+  clinicalData: StudyClinicalData | null;
   arrivalAt: string | null;
   sla: StudySlaSnapshot;
   assignment: StudyAssignmentSummary;
+  lock: StudyLockInfo;
+  flags: StudyFlags;
   timestamps: StudyTimestamps;
 }
 
@@ -152,6 +176,7 @@ export interface StudyListQuery {
   status?: StudyStatus;
   category?: PatientCategory;
   pool?: StudyPool;
+  slaState?: SlaState;
   assignedDoctorId?: string;
   assignedReporterId?: string;
   search?: string;

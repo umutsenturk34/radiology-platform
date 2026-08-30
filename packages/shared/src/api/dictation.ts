@@ -2,6 +2,12 @@
 
 import type { DictationStatus } from '../enums/dictation';
 
+/** Multipart field names for `POST /dictations/:id/upload`. */
+export const DICTATION_UPLOAD_FIELD = {
+  FILE: 'file',
+  DURATION_MS: 'durationMs',
+} as const;
+
 export interface DictationDoctorSummary {
   id: string;
   displayName: string;
