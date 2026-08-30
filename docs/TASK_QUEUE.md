@@ -1401,6 +1401,10 @@ GET  /studies/:studyId/pacs/viewer      StudyPacsViewer
 GET  /studies/:studyId/pacs/series      StudyPacsSeries[]
 ```
 
+`GET /hospitals` (API_CONTRACT section 22) **henüz yok** — canlı ortamda 404.
+Hastane filtresi için şimdilik `StudyListItem.hospital` kullanılmalı
+(DISCOVERED-006).
+
 Realtime: Socket.IO namespace `/realtime`, token handshake `auth` içinde.
 Olay adları ve payload'lar `@radiology/shared/realtime` içinde canonical
 (`RealtimeEventType`, `RealtimeEventPayloads`). Realtime **source of truth
@@ -4307,6 +4311,42 @@ test/studies.e2e-spec.ts                  detail flags/lock/clinicalData + fail-
 test/study-locks.e2e-spec.ts              detail lock'u ayrı uçla aynı
 test/information.e2e-spec.ts              not eklenince hasInformation yükseliyor
 ```
+
+---
+
+## DISCOVERED-006 — Hospitals List Endpoint
+
+**Owner:** BACKEND  
+**Priority:** P1  
+**Status:** TODO  
+**Depends On:** BACKEND-008  
+**Keşfedildi:** deploy sonrası canlı smoke test sırasında
+
+### Issue
+
+`API_CONTRACT.md` section 22 `GET /hospitals` uç noktasını tanımlıyor ve
+section 137 bunu **pilot minimum endpoint listesine** koyuyor. Canlı ortamda
+`404` dönüyor: `apps/backend/src` içinde hospitals controller'ı yok ve
+TASK_QUEUE'da bu ucu üstlenen bir görev de yok — iki doküman arasındaki boşluk.
+
+`FRONTEND.md` section 112 birden fazla hastaneye yetkili kullanıcı için hastane
+filtresinden bahsediyor; frontend o filtreyi doldururken bu ucu çağıracak.
+
+### Geçici çözüm (frontend için)
+
+`StudyListItem.hospital` zaten `{ id, code, shortName }` taşıyor, yani mevcut
+liste cevabından kullanıcının gördüğü hastaneler türetilebilir. Bu bir çözüm
+değil, yalnızca engel kaldırıcıdır: hiç study'si olmayan bir hastane bu yolla
+görünmez.
+
+### Yapılacaklar
+
+- `GET /hospitals` — çağıranın yetkili olduğu hastaneler
+  (`HospitalScopeService` zaten bu kümeyi biliyor)
+- Manager için pilot varsayılanı: tüm aktif hastaneler
+  (`AUTH_ROLES_PERMISSIONS.md` section 46)
+- Shared'da `HospitalSummary` sözleşmesi
+- e2e: hastane scope izolasyonu
 
 ---
 
