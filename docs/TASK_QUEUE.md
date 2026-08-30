@@ -1413,17 +1413,19 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 tek çalışma ekranında kritik veriler var.
 
-### Implementation Note (2026-08-29)
+### Implementation Note (2026-08-31)
 
-- Workspace gerçek shared `StudyDetail` sözleşmesiyle hasta, tetkik, assignment,
-  workflow zamanı ve SLA deadline verisini gösterir; lock ve gerçek dikte listesi
-  ayrı API çağrılarından alınır.
-- PACS viewer, clinical information ve Information notes için backend alanı veya
-  endpointi hazır olmadığı için içerik uydurulmaz; ekran bunların kullanılabilir
-  olmadığını açıkça belirtir.
+- Workspace canonical shared `StudyDetail`, `StudyLockInfo`, `DictationDto`,
+  `StudyPacsViewer`, `StudyPacsSeries` ve `InformationNoteDto` sözleşmelerini
+  kullanır. Hasta, tetkik, atama, workflow, SLA, lock, dikte, PACS ve
+  Information bölümleri yalnız gerçek API yanıtlarından beslenir.
+- `clinicalData` için backend sözleşmesi teslim edilmedi. Bu alan için değer
+  üretilmez; bağımlılık kullanıcıya açıkça gösterilir.
 - FRONTEND-009 kayıt alma akışı henüz eklenmediğinden dikte bölümü yalnız mevcut
   backend kayıtlarını gösterir. Canlı workspace kabulü tamamlanmadan `DONE`
   yapılmayacak.
+- Canlı browser acceptance 2026-08-31 tarihinde mevcut Railway test doktoru
+  kimlik bilgisi `401 INVALID_CREDENTIALS` döndüğü için tamamlanamadı.
 
 ---
 

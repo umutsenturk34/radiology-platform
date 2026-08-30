@@ -352,9 +352,11 @@ FRONTEND-006 DONE — iki doktorla aynı gerçek study üzerinde canlı lock kab
 PASS: Doctor A 200 ile okumaya geçti; Doctor B 423 `STUDY_LOCKED` aldı ve UI
 sahip, rol ve kilit durumunu gösterdi.
 
-FRONTEND-007 IN_PROGRESS — workspace gerçek shared StudyDetail, lock ve dikte
-listesi sözleşmelerini kullanacak şekilde genişletildi. PACS, clinical bilgi ve
-Information notları backend tarafından henüz sağlanmadığı için veri üretilmez.
+FRONTEND-007 IN_PROGRESS — backend handoff'taki canonical shared StudyDetail,
+StudyLockInfo, DictationDto, PACS ve Information sözleşmeleri kullanıldı.
+Workspace gerçek study detail, SLA, lock, dikte listesi, PACS viewer/seri ve
+Information notlarını ayrı REST çağrılarıyla gösterir. clinicalData için backend
+sözleşmesi bulunmadığından sahte klinik veri yoktur.
 ```
 
 ## Current Frontend Task
@@ -384,7 +386,10 @@ Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ## Frontend Blockers
 
 ```text
-Canlı backend URL'si `.env.local` üzerinden yapılandırıldı. BLOCKED yok.
+Railway health endpointi 200 ve database/Redis UP döndü. Ancak varsayılan test
+doktoru hesabı canlı ortamda `401 INVALID_CREDENTIALS` döndürüyor; bu nedenle
+authenticated browser acceptance tamamlanamadı. Güncel test kimlik bilgisi veya
+test hesabı reseti gerektiği için FRONTEND-007 IN_PROGRESS kalır.
 ```
 
 ## Frontend Known Issues
@@ -399,9 +404,10 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-007: canlı backend'in gerçek StudyDetail ve lock yanıtlarına göre
-workspace'i tamamla. PACS, clinical information veya Information endpointi
-hazır değilse UI'da veri üretme; bağımlılığı açıkça kaydet.
+FRONTEND-007: geçerli Railway test doktoru kimlik bilgisi ile browser'da giriş
+yap; gerçek study açıp detail, SLA, lock, dikte, PACS ve Information alanlarını
+doğrula. Bu acceptance PASS olmadan task'ı DONE yapma. Sonraki P0 sırası:
+FRONTEND-009, ardından FRONTEND-011.
 ```
 
 ---
