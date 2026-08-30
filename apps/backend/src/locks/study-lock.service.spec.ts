@@ -310,6 +310,7 @@ describe('StudyLockService.describe', () => {
 
     await expect(service.describe(STUDY_ID)).resolves.toEqual({
       locked: false,
+      type: null,
       ownerUserId: null,
       ownerDisplayName: null,
       ownerRole: null,
@@ -325,6 +326,7 @@ describe('StudyLockService.describe', () => {
 
     await expect(service.describe(STUDY_ID)).resolves.toMatchObject({
       locked: true,
+      type: 'INTERNAL',
       ownerUserId: DOCTOR_A.userId,
       ownerDisplayName: 'Doktor A',
       ownerRole: UserRole.DOCTOR,

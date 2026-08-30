@@ -1,3 +1,4 @@
+import type { StudyLockType } from '../api/lock';
 import type { PatientCategory } from '../enums/patient';
 import type { StudyStatus } from '../enums/study';
 import type { UserRole } from '../enums/user';
@@ -93,7 +94,8 @@ export interface StudyLockedPayload {
   ownerDisplayName: string;
   ownerRole: UserRole;
   lockedAt: string;
-  lockType: 'INTERNAL';
+  /** Same vocabulary as `StudyLockInfo.type`, so REST and socket agree. */
+  lockType: StudyLockType;
 }
 
 /**

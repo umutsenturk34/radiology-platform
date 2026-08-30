@@ -12,10 +12,18 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SlaService, type SlaWarningWindows } from '../sla/sla.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
+import { StudyLockService } from '../locks/study-lock.service';
 import { NotFoundAppException } from '../common/errors/app.exception';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { ListStudiesDto } from './dto/list-studies.dto';
-import { STUDY_INCLUDE, toStudyDetail, toStudyListItem, type StudyRow } from './studies.mapper';
+import { emptyStudyFlags, StudyFlagsService } from './study-flags.service';
+import {
+  STUDY_INCLUDE,
+  toStudyDetail,
+  toStudyListItem,
+  type StudyDetailRow,
+  type StudyRow,
+} from './studies.mapper';
 
 /**
  * Operational list presets -> real statuses (docs/API_CONTRACT.md section 25).
@@ -54,6 +62,8 @@ export class StudiesService {
     private readonly prisma: PrismaService,
     private readonly hospitalScope: HospitalScopeService,
     private readonly sla: SlaService,
+    private readonly flags: StudyFlagsService,
+    private readonly locks: StudyLockService,
   ) {}
 
   async list(
@@ -107,9 +117,17 @@ export class StudiesService {
       }),
     ]);
 
+    const page = rows as unknown as StudyRow[];
+    // One batched pass for the whole page rather than a query per row.
+    const flags = await this.flags.forStudies(page);
+
     return {
-      data: (rows as unknown as StudyRow[]).map((row) =>
-        toStudyListItem(row, this.sla.snapshot(row, windows, now)),
+      data: page.map((row) =>
+        toStudyListItem(
+          row,
+          this.sla.snapshot(row, windows, now),
+          flags.get(row.id) ?? emptyStudyFlags(),
+        ),
       ),
       meta: buildPaginationMeta(query.page, query.pageSize, total),
     };
@@ -118,7 +136,9 @@ export class StudiesService {
   async getById(user: AuthenticatedUser, studyId: string): Promise<StudyDetail> {
     const study = await this.prisma.study.findUnique({
       where: { id: studyId },
-      include: STUDY_INCLUDE,
+      // The clinical block is a detail-only join; the list has no use for it
+      // and should not pay for it on every row.
+      include: { ...STUDY_INCLUDE, clinicalData: true },
     });
 
     if (!study) {
@@ -128,11 +148,20 @@ export class StudiesService {
     // Knowing the UUID is not access (docs/API_CONTRACT.md section 29). The
     // contract asks for an explicit 403 HOSPITAL_ACCESS_DENIED here rather than
     // a 404, so the client can tell "not authorized" from "does not exist"
-    // (TASK_QUEUE BACKEND-008).
+    // (TASK_QUEUE BACKEND-008). Nothing below runs before this passes.
     this.hospitalScope.assertAllowed(user, study.hospitalId);
 
-    const row = study as unknown as StudyRow;
-    return toStudyDetail(row, this.sla.snapshot(row, await this.sla.warningWindows(), new Date()));
+    const row = study as unknown as StudyDetailRow;
+
+    // The lock read fails closed: an unreachable Redis surfaces as 503 rather
+    // than as a study that quietly looks free to take (CLAUDE.md section 17).
+    const [windows, lock, flags] = await Promise.all([
+      this.sla.warningWindows(),
+      this.locks.describe(studyId),
+      this.flags.forStudy(row),
+    ]);
+
+    return toStudyDetail(row, this.sla.snapshot(row, windows, new Date()), lock, flags);
   }
 }
 

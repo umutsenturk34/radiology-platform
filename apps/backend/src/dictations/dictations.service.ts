@@ -2,7 +2,7 @@ import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { ApiErrorCode, DictationStatus, StudyStatus, UserRole, type DictationDto } from '@radiology/shared';
+import { ApiErrorCode, DICTATION_UPLOAD_FIELD, DictationStatus, StudyStatus, UserRole, type DictationDto } from '@radiology/shared'; // prettier-ignore
 import { PrismaService } from '../prisma/prisma.service';
 import { StudyLockService } from '../locks/study-lock.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
@@ -143,18 +143,24 @@ export class DictationsService {
     }
 
     if (!file || file.size === 0) {
-      throw new ValidationAppException({ file: ['An audio file is required.'] });
+      throw new ValidationAppException({
+        [DICTATION_UPLOAD_FIELD.FILE]: ['An audio file is required.'],
+      });
     }
 
     if (file.size > this.storageConfig.maxUploadBytes) {
       throw new ValidationAppException({
-        file: [`The audio file exceeds ${this.storageConfig.maxUploadBytes} bytes.`],
+        [DICTATION_UPLOAD_FIELD.FILE]: [
+          `The audio file exceeds ${this.storageConfig.maxUploadBytes} bytes.`,
+        ],
       });
     }
 
     const mimeType = dictation.mimeType ?? file.mimetype;
     if (!isAllowedMimeType(mimeType)) {
-      throw new ValidationAppException({ file: ['Unsupported audio type.'] });
+      throw new ValidationAppException({
+        [DICTATION_UPLOAD_FIELD.FILE]: ['Unsupported audio type.'],
+      });
     }
 
     await this.prisma.dictation.update({

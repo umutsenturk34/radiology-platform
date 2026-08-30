@@ -1,4 +1,9 @@
-import { OTHER_HOSPITAL, TEST_HOSPITAL, type StoredStudy } from './auth-test-harness';
+import {
+  OTHER_HOSPITAL,
+  TEST_HOSPITAL,
+  type StoredClinicalData,
+  type StoredStudy,
+} from './auth-test-harness';
 
 /**
  * Study fixtures spanning two hospitals, so cross-hospital isolation can be
@@ -31,12 +36,18 @@ interface BuildOptions {
   slaDeadlineAt?: Date | null;
   /** Doctor final approval, which stops the SLA clock. */
   finalizedAt?: Date | null;
+  /** Lets two studies share a patient, which is what a sibling flag needs. */
+  patientId?: string;
+  clinicalData?: StoredClinicalData;
 }
 
 export function buildStudy(options: BuildOptions): StoredStudy {
+  const patientId = options.patientId ?? `patient-${options.id}`;
+
   return {
     id: options.id,
     hospitalId: options.hospital.id,
+    patientId,
     accessionNumber: options.accessionNumber,
     status: options.status,
     category: options.category,
@@ -55,7 +66,7 @@ export function buildStudy(options: BuildOptions): StoredStudy {
     assignedDoctorId: options.assignedDoctorId ?? null,
     assignedReporterId: null,
     patient: {
-      id: `patient-${options.id}`,
+      id: patientId,
       externalPatientId: options.externalPatientId,
       firstName: 'Test',
       lastName: options.patientLastName,
@@ -70,6 +81,7 @@ export function buildStudy(options: BuildOptions): StoredStudy {
     },
     assignedDoctor: null,
     assignedReporter: null,
+    clinicalData: options.clinicalData ?? null,
   };
 }
 

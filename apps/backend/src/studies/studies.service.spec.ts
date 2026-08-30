@@ -1,9 +1,11 @@
 import { PATIENT_CATEGORIES, PatientCategory, SlaState, SortOrder, StudyPool, StudyStatus, UserRole, UserStatus } from '@radiology/shared'; // prettier-ignore
 import { StudiesService } from './studies.service';
+import { StudyFlagsService } from './study-flags.service';
 import { ListStudiesDto } from './dto/list-studies.dto';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
 import { SlaService } from '../sla/sla.service';
 import { AppException } from '../common/errors/app.exception';
+import type { StudyLockService } from '../locks/study-lock.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -29,6 +31,7 @@ function studyRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'study-1',
     hospitalId: HOSPITAL_A,
+    patientId: 'patient-1',
     accessionNumber: 'ACC-001',
     status: StudyStatus.UNREAD,
     category: PatientCategory.ACIL,
@@ -58,12 +61,27 @@ function studyRow(overrides: Record<string, unknown> = {}) {
     hospital: { id: HOSPITAL_A, code: 'TEST_HOSPITAL', name: 'Test Hastanesi', shortName: 'TEST' },
     assignedDoctor: null,
     assignedReporter: null,
+    clinicalData: null,
     ...overrides,
   };
 }
 
+/** Nothing holds a lock unless a test says otherwise. */
+const UNLOCKED = {
+  locked: false,
+  type: null,
+  ownerUserId: null,
+  ownerDisplayName: null,
+  ownerRole: null,
+  lockedAt: null,
+  expiresInSeconds: null,
+} as const;
+
 /** Records the arguments Prisma was called with so the query can be asserted. */
-function createPrismaSpy(rows: Array<Record<string, unknown>> = [studyRow()]) {
+function createPrismaSpy(
+  rows: Array<Record<string, unknown>> = [studyRow()],
+  notes: Array<{ studyId: string }> = [],
+) {
   const calls: { count?: unknown; findMany?: unknown; findUnique?: unknown } = {};
 
   const prisma = {
@@ -72,14 +90,35 @@ function createPrismaSpy(rows: Array<Record<string, unknown>> = [studyRow()]) {
         calls.count = args;
         return Promise.resolve(rows.length);
       },
-      findMany: (args: unknown) => {
-        calls.findMany = args;
-        return Promise.resolve(rows);
+      findMany: (args: { include?: unknown; where?: Record<string, unknown> }) => {
+        // Two different queries land here: the paged list, which asks for
+        // relations via `include`, and the sibling lookup behind the flags,
+        // which only selects ids. Only the first is the query under assertion.
+        if (args.include) {
+          calls.findMany = args;
+          return Promise.resolve(rows);
+        }
+
+        const where = args.where ?? {};
+        const patientIds = (where.patientId as { in: string[] } | undefined)?.in ?? [];
+        const excluded = (where.status as { notIn: string[] } | undefined)?.notIn ?? [];
+
+        return Promise.resolve(
+          rows.filter(
+            (row) =>
+              patientIds.includes(row.patientId as string) &&
+              !excluded.includes(row.status as string),
+          ),
+        );
       },
       findUnique: (args: unknown) => {
         calls.findUnique = args;
         return Promise.resolve(rows[0] ?? null);
       },
+    },
+    informationNote: {
+      findMany: ({ where }: { where: { studyId: { in: string[] } } }) =>
+        Promise.resolve(notes.filter((note) => where.studyId.in.includes(note.studyId))),
     },
     $transaction: (operations: Array<Promise<unknown>>) => Promise.all(operations),
     // The SLA engine reads the active warning windows; the seeded 20 minutes
@@ -95,10 +134,23 @@ function createPrismaSpy(rows: Array<Record<string, unknown>> = [studyRow()]) {
   return { prisma: prisma as unknown as PrismaService, calls };
 }
 
-function createService(rows?: Array<Record<string, unknown>>) {
-  const { prisma, calls } = createPrismaSpy(rows);
+function createService(
+  rows?: Array<Record<string, unknown>>,
+  options: { notes?: Array<{ studyId: string }>; lock?: unknown } = {},
+) {
+  const { prisma, calls } = createPrismaSpy(rows, options.notes);
+  const locks = {
+    describe: () => Promise.resolve(options.lock ?? UNLOCKED),
+  } as unknown as StudyLockService;
+
   return {
-    service: new StudiesService(prisma, new HospitalScopeService(), new SlaService(prisma)),
+    service: new StudiesService(
+      prisma,
+      new HospitalScopeService(),
+      new SlaService(prisma),
+      new StudyFlagsService(prisma),
+      locks,
+    ),
     calls,
   };
 }
@@ -339,6 +391,12 @@ describe('StudiesService.list', () => {
         state: SlaState.OVERDUE,
       },
       assignment: { doctor: null, reporter: null },
+      flags: {
+        hasInformation: false,
+        imageMissing: false,
+        hasRevisionRequest: false,
+        hasUnreportedSiblingStudy: false,
+      },
     });
     expect(result.data[0]).not.toHaveProperty('hospitalId');
     expect(result.data[0]).not.toHaveProperty('patientId');

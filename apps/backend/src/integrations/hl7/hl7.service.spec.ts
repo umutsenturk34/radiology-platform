@@ -35,6 +35,7 @@ function createFakePrisma() {
   ];
   const history: Row[] = [];
   const auditLogs: Row[] = [];
+  const clinicalData: Row[] = [];
 
   let sequence = 0;
   const nextId = (prefix: string) => `${prefix}-${++sequence}`;
@@ -105,6 +106,25 @@ function createFakePrisma() {
         return Promise.resolve(row);
       },
     },
+    clinicalData: {
+      findUnique: ({ where }: { where: { studyId: string } }) =>
+        Promise.resolve(clinicalData.find((row) => row.studyId === where.studyId) ?? null),
+      create: ({ data }: { data: Row }) => {
+        const row = { id: nextId('clinical'), ...data };
+        clinicalData.push(row);
+        return Promise.resolve(row);
+      },
+      update: ({ where, data }: { where: { studyId: string }; data: Row }) => {
+        const row = clinicalData.find((candidate) => candidate.studyId === where.studyId);
+        if (!row) throw new Error('clinical data not found');
+        // Prisma skips undefined entries, which is what keeps an omitted field
+        // from erasing what an earlier message supplied.
+        for (const [key, value] of Object.entries(data)) {
+          if (value !== undefined) row[key] = value;
+        }
+        return Promise.resolve(row);
+      },
+    },
     slaPolicy: {
       findFirst: ({ where }: { where: Row }) =>
         Promise.resolve(
@@ -132,7 +152,14 @@ function createFakePrisma() {
     $transaction: (callback: (tx: unknown) => Promise<unknown>) => callback(client),
   };
 
-  return { prisma: prisma as unknown as PrismaService, patients, studies, history, auditLogs };
+  return {
+    prisma: prisma as unknown as PrismaService,
+    patients,
+    studies,
+    history,
+    auditLogs,
+    clinicalData,
+  };
 }
 
 function createService() {
@@ -250,6 +277,36 @@ describe('Hl7Service.processFirstEvent', () => {
 
     const received = auditLogs.find((row) => row.eventType === 'HL7_FIRST_RECEIVED');
     expect(received?.metadata).toMatchObject({ clinicalData: { preDiagnosis: 'Pnomoni' } });
+  });
+
+  it('stores the normalized clinical data against the study', async () => {
+    const { service, clinicalData } = createService();
+
+    const result = await service.processFirstEvent(
+      firstEvent({
+        clinicalData: {
+          preDiagnosis: 'Pnomoni',
+          requestingPhysician: 'Dr. Talep',
+          additionalData: { hospitalField: 'X-91' },
+        },
+      }),
+    );
+
+    expect(clinicalData).toHaveLength(1);
+    expect(clinicalData[0]).toMatchObject({
+      studyId: result.studyId,
+      preDiagnosis: 'Pnomoni',
+      requestingPhysician: 'Dr. Talep',
+      additionalData: { hospitalField: 'X-91' },
+    });
+  });
+
+  it('writes no clinical row when the message carried no clinical block', async () => {
+    const { service, clinicalData } = createService();
+
+    await service.processFirstEvent(firstEvent());
+
+    expect(clinicalData).toHaveLength(0);
   });
 
   it('is idempotent: a repeated message creates no second study or patient', async () => {

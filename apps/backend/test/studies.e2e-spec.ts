@@ -7,6 +7,7 @@ import {
 } from './fixtures/auth-test-harness';
 import {
   ALL_STUDIES,
+  buildStudy,
   STUDY_IN_SCOPE_NEWEST,
   STUDY_IN_SCOPE_OLDEST,
   STUDY_OUT_OF_SCOPE,
@@ -25,7 +26,7 @@ describe('Studies (e2e)', () => {
   const tokens: Record<string, string> = {};
 
   beforeAll(async () => {
-    harness = await createTestHarness({ studies: ALL_STUDIES });
+    harness = await createTestHarness({ studies: ALL_STUDIES, withRedis: true });
 
     for (const role of ['doctor', 'reporter', 'operation', 'manager']) {
       tokens[role] = await harness.accessTokenFor(`${role}@test.local`);
@@ -239,5 +240,220 @@ describe('Studies (e2e)', () => {
       const response = await get(`/api/v1/studies/${STUDY_IN_SCOPE_OLDEST.id}`).expect(401);
       expect(response.body.error.code).toBe('UNAUTHORIZED');
     });
+
+    it('reports an unheld lock rather than omitting the lock block', async () => {
+      const response = await get(`/api/v1/studies/${STUDY_IN_SCOPE_OLDEST.id}`, 'doctor').expect(
+        200,
+      );
+
+      expect(response.body.data.lock).toEqual({
+        locked: false,
+        type: null,
+        ownerUserId: null,
+        ownerDisplayName: null,
+        ownerRole: null,
+        lockedAt: null,
+        expiresInSeconds: null,
+      });
+    });
+
+    it('carries a flags block on every study', async () => {
+      const response = await get(`/api/v1/studies/${STUDY_IN_SCOPE_OLDEST.id}`, 'doctor').expect(
+        200,
+      );
+
+      expect(response.body.data.flags).toEqual({
+        hasInformation: false,
+        imageMissing: false,
+        hasRevisionRequest: false,
+        hasUnreportedSiblingStudy: false,
+      });
+    });
+
+    it('reports null clinicalData when the hospital sent no clinical block', async () => {
+      const response = await get(`/api/v1/studies/${STUDY_IN_SCOPE_OLDEST.id}`, 'doctor').expect(
+        200,
+      );
+
+      expect(response.body.data.clinicalData).toBeNull();
+    });
+  });
+
+  describe('GET /studies — list flags', () => {
+    it('carries the same flags block on every list row', async () => {
+      const response = await get('/api/v1/studies', 'doctor').expect(200);
+
+      for (const item of response.body.data) {
+        expect(item.flags).toEqual({
+          hasInformation: false,
+          imageMissing: false,
+          hasRevisionRequest: false,
+          hasUnreportedSiblingStudy: false,
+        });
+      }
+    });
+  });
+});
+
+/**
+ * The parts of the detail contract that need their own data: shared patients,
+ * a stored clinical block and a study parked as IMAGE_MISSING
+ * (API_CONTRACT sections 26 and 28, TASK_QUEUE DISCOVERED-003/004).
+ *
+ * A separate harness keeps these rows out of the list assertions above.
+ */
+describe('Studies (e2e) — detail contract', () => {
+  let harness: TestHarness;
+  let doctorToken: string;
+
+  const SHARED_PATIENT = 'patient-shared-0001';
+
+  const SIBLING_OPEN = buildStudy({
+    id: 'aaaa1111-1111-4111-8111-aaaa11111111',
+    hospital: TEST_HOSPITAL,
+    accessionNumber: 'SIB-OPEN',
+    status: 'UNREAD',
+    category: 'ACIL',
+    arrivalAt: '2026-08-15T08:00:00.000Z',
+    patientLastName: 'Kardes',
+    externalPatientId: 'SIB-1',
+    patientId: SHARED_PATIENT,
+  });
+
+  const SIBLING_ALSO_OPEN = buildStudy({
+    id: 'aaaa2222-2222-4222-8222-aaaa22222222',
+    hospital: TEST_HOSPITAL,
+    accessionNumber: 'SIB-OPEN-2',
+    status: 'WAITING_TRANSCRIPTION',
+    category: 'NORMAL',
+    arrivalAt: '2026-08-15T09:00:00.000Z',
+    patientLastName: 'Kardes',
+    externalPatientId: 'SIB-1',
+    patientId: SHARED_PATIENT,
+  });
+
+  /** Same patient again, but this one already has a final report. */
+  const SIBLING_REPORTED = buildStudy({
+    id: 'aaaa3333-3333-4333-8333-aaaa33333333',
+    hospital: TEST_HOSPITAL,
+    accessionNumber: 'SIB-DONE',
+    status: 'HBYS_SENT',
+    category: 'NORMAL',
+    arrivalAt: '2026-08-15T07:00:00.000Z',
+    patientLastName: 'Kardes',
+    externalPatientId: 'SIB-1',
+    patientId: SHARED_PATIENT,
+  });
+
+  const LONE_STUDY = buildStudy({
+    id: 'bbbb1111-1111-4111-8111-bbbb11111111',
+    hospital: TEST_HOSPITAL,
+    accessionNumber: 'LONE-001',
+    status: 'IMAGE_MISSING',
+    category: 'NORMAL',
+    arrivalAt: '2026-08-15T10:00:00.000Z',
+    patientLastName: 'Tek',
+    externalPatientId: 'LONE-1',
+    clinicalData: {
+      preDiagnosis: 'Pnomoni suphesi',
+      requestReason: 'Ates ve oksuruk',
+      patientComplaint: null,
+      previousStudyInfo: null,
+      requestingPhysician: 'Dr. Talep',
+      department: 'Acil',
+      additionalData: { hospitalField: 'X-91' },
+    },
+  });
+
+  beforeAll(async () => {
+    harness = await createTestHarness({
+      studies: [SIBLING_OPEN, SIBLING_ALSO_OPEN, SIBLING_REPORTED, LONE_STUDY],
+      withRedis: true,
+    });
+    doctorToken = await harness.accessTokenFor('doctor@test.local');
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  const detail = (studyId: string) =>
+    request(harness.app.getHttpServer())
+      .get(`/api/v1/studies/${studyId}`)
+      .set('Authorization', `Bearer ${doctorToken}`);
+
+  it('flags another unreported study of the same patient', async () => {
+    const response = await detail(SIBLING_OPEN.id).expect(200);
+
+    expect(response.body.data.flags.hasUnreportedSiblingStudy).toBe(true);
+  });
+
+  it('does not count a sibling that already has a final report', async () => {
+    const response = await detail(SIBLING_REPORTED.id).expect(200);
+
+    // This one is reported, but its two siblings are not, so the flag is still
+    // true — what the assertion below proves is the reverse direction.
+    expect(response.body.data.flags.hasUnreportedSiblingStudy).toBe(true);
+
+    const lone = await detail(LONE_STUDY.id).expect(200);
+    expect(lone.body.data.flags.hasUnreportedSiblingStudy).toBe(false);
+  });
+
+  it('derives imageMissing from the study status', async () => {
+    const response = await detail(LONE_STUDY.id).expect(200);
+
+    expect(response.body.data.flags.imageMissing).toBe(true);
+  });
+
+  it('returns the stored clinical block, extras included', async () => {
+    const response = await detail(LONE_STUDY.id).expect(200);
+
+    expect(response.body.data.clinicalData).toEqual({
+      preDiagnosis: 'Pnomoni suphesi',
+      requestReason: 'Ates ve oksuruk',
+      patientComplaint: null,
+      previousStudyInfo: null,
+      requestingPhysician: 'Dr. Talep',
+      department: 'Acil',
+      additionalData: { hospitalField: 'X-91' },
+    });
+  });
+});
+
+/**
+ * Redis is the lock authority, and the detail now carries the lock. With Redis
+ * unreachable the read must refuse rather than answer "nobody holds it"
+ * (CLAUDE.md section 17).
+ */
+describe('Studies (e2e) — lock state fails closed', () => {
+  let harness: TestHarness;
+
+  beforeAll(async () => {
+    harness = await createTestHarness({ studies: ALL_STUDIES, withRedis: false });
+  });
+
+  afterAll(async () => {
+    await harness.close();
+  });
+
+  it('refuses the study detail instead of reporting the study as unlocked', async () => {
+    const token = await harness.accessTokenFor('doctor@test.local');
+
+    const response = await request(harness.app.getHttpServer())
+      .get(`/api/v1/studies/${STUDY_IN_SCOPE_OLDEST.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(503);
+
+    expect(response.body.error.code).toBe('SERVICE_UNAVAILABLE');
+    expect(response.body).not.toHaveProperty('data');
+  });
+
+  it('still serves the study list, which does not depend on the lock', async () => {
+    const token = await harness.accessTokenFor('doctor@test.local');
+
+    await request(harness.app.getHttpServer())
+      .get('/api/v1/studies')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
   });
 });

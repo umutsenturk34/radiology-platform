@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiErrorCode } from '@radiology/shared';
+import { ApiErrorCode, StudyLockType } from '@radiology/shared';
 import { RedisService } from '../redis/redis.service';
 import { AppException, ServiceUnavailableAppException } from '../common/errors/app.exception';
 import { AppLogger } from '../common/logging/app-logger.service';
@@ -317,6 +317,7 @@ export class StudyLockService {
     if (!lock) {
       return {
         locked: false,
+        type: null,
         ownerUserId: null,
         ownerDisplayName: null,
         ownerRole: null,
@@ -329,6 +330,9 @@ export class StudyLockService {
 
     return {
       locked: true,
+      // Every lock this service takes is one this platform owns. A hospital-side
+      // lock would be a different type, and there is no model for one yet.
+      type: StudyLockType.INTERNAL,
       ownerUserId: lock.ownerUserId,
       ownerDisplayName: lock.ownerDisplayName,
       ownerRole: lock.ownerRole,

@@ -85,6 +85,7 @@ interface SessionWhere {
 export interface StoredStudy {
   id: string;
   hospitalId: string;
+  patientId: string;
   accessionNumber: string;
   status: string;
   category: string;
@@ -116,6 +117,18 @@ export interface StoredStudy {
   hospital: { id: string; code: string; name: string; shortName: string | null };
   assignedDoctor: { id: string; firstName: string; lastName: string } | null;
   assignedReporter: { id: string; firstName: string; lastName: string } | null;
+  /** The 1-1 clinical block; null when the hospital sent no clinical fields. */
+  clinicalData: StoredClinicalData | null;
+}
+
+export interface StoredClinicalData {
+  preDiagnosis: string | null;
+  requestReason: string | null;
+  patientComplaint: string | null;
+  previousStudyInfo: string | null;
+  requestingPhysician: string | null;
+  department: string | null;
+  additionalData: Record<string, unknown> | null;
 }
 
 type WhereValue = unknown;
@@ -140,6 +153,9 @@ function matchesWhere(row: Record<string, unknown>, where: Record<string, WhereV
 
       if ('in' in operators) {
         return (operators.in as unknown[]).includes(value);
+      }
+      if ('notIn' in operators) {
+        return !(operators.notIn as unknown[]).includes(value);
       }
       if ('contains' in operators) {
         const needle = String(operators.contains).toLowerCase();
@@ -593,7 +609,7 @@ export function createPrismaStub(
       },
       findMany: ({ where }: { where?: Record<string, unknown> }) => {
         const rows = informationNotes.filter((row) =>
-          Object.entries(where ?? {}).every(([key, value]) => row[key] === value),
+          matchesWhere(row, (where ?? {}) as Record<string, WhereValue>),
         );
         return Promise.resolve(
           [...rows]

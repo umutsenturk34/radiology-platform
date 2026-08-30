@@ -91,6 +91,9 @@ describe('SLA (e2e)', () => {
         COMPLETED_LATE_STUDY,
         NO_POLICY_STUDY,
       ],
+      // The study detail reads the lock alongside the study and fails closed
+      // when Redis is unreachable, so the suite provides one.
+      withRedis: true,
     });
     doctorToken = await harness.accessTokenFor('doctor@test.local');
   });

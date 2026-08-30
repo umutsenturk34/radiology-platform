@@ -636,15 +636,24 @@ Response item örneği:
     "doctor": null,
     "reporter": null
   },
-  "lock": null,
   "flags": {
     "hasInformation": false,
+    "imageMissing": false,
     "hasRevisionRequest": false,
-    "hasUnreportedSiblingStudy": false,
-    "imageMissing": false
+    "hasUnreportedSiblingStudy": false
   }
 }
 ```
+
+Liste satırı **lock taşımaz**.
+
+Sebebi: lock Redis'te tutulur ve Redis erişilemezse lock durumu "kilitsiz"
+diye okunamaz — fail closed zorunludur. Bunu her liste satırına koymak, tek bir
+Redis kesintisinde tüm çalışma listesini kullanılamaz hale getirirdi.
+
+Bir çalışmanın kimde olduğu listede zaten `status` ve `assignment` üzerinden
+görünür; kesin lock bilgisi Study detail ve `GET /studies/:id/lock` üzerinden
+alınır, canlı değişim `study.locked` / `study.unlocked` event'leriyle gelir.
 
 ---
 
@@ -707,23 +716,19 @@ Response:
     "study": {
       "description": "BT Toraks",
       "modality": "CT",
-      "studyInstanceUid": "..."
+      "studyInstanceUid": "...",
+      "externalOrderId": "...",
+      "externalProtocolId": "..."
     },
 
     "clinicalData": {
       "preDiagnosis": "...",
       "requestReason": "...",
-      "patientComplaint": "...",
-      "previousStudyInfo": "...",
+      "patientComplaint": null,
+      "previousStudyInfo": null,
       "requestingPhysician": "...",
       "department": "...",
-      "additionalData": {}
-    },
-
-    "pacs": {
-      "availabilityStatus": "AVAILABLE",
-      "viewerAvailable": true,
-      "series": []
+      "additionalData": { "hospitalField": "X-91" }
     },
 
     "assignment": {
@@ -740,11 +745,13 @@ Response:
       "ownerUserId": "...",
       "ownerDisplayName": "Test Doctor",
       "ownerRole": "DOCTOR",
-      "lockedAt": "..."
+      "lockedAt": "...",
+      "expiresInSeconds": 240
     },
 
     "sla": {
       "deadlineAt": "...",
+      "completedAt": null,
       "remainingSeconds": 1200,
       "overdueSeconds": 0,
       "state": "WARNING"
@@ -753,12 +760,87 @@ Response:
     "flags": {
       "hasInformation": true,
       "imageMissing": false,
-      "revisionRequested": false,
-      "externalLockConflict": false
+      "hasRevisionRequest": false,
+      "hasUnreportedSiblingStudy": false
+    },
+
+    "timestamps": {
+      "firstHl7ReceivedAt": "...",
+      "secondHl7ReceivedAt": "...",
+      "imagesAvailableAt": "...",
+      "readingStartedAt": "...",
+      "readingCompletedAt": null,
+      "transcriptionStartedAt": null,
+      "transcriptionCompletedAt": null,
+      "finalizedAt": null
     }
   }
 }
 ```
+
+## 28.1 clinicalData
+
+Hastanenin HL7 ile gönderdiği klinik bağlam (`DATA_MODEL.md` 28-29,
+`INTEGRATIONS.md` 15).
+
+Hiç klinik alan gelmediyse `clinicalData` **null** döner. Frontend bunu "veri
+yok" olarak göstermelidir; boş bir klinik metin olarak göstermemelidir.
+
+İki HL7 mesajı farklı alanlar taşıyabilir. Sonraki mesajın taşımadığı bir alan,
+önceki mesajın verdiği değeri **silmez**.
+
+## 28.2 lock
+
+`GET /studies/:id/lock` ile **aynı** gövde (`StudyLockInfo`).
+
+Detay okuması Redis'e bağımlıdır ve fail closed'dır: Redis erişilemezse detay
+`503 SERVICE_UNAVAILABLE` döner. "Kilitsiz" cevabı verilmez.
+
+`type` şimdilik yalnızca `INTERNAL` alabilir; hastane tarafı external lock için
+kalıcı model henüz yok (`DATA_MODEL.md` 23).
+
+## 28.3 flags
+
+`flags` **liste ve detayda birebir aynı** nesnedir (bkz. section 26). Alanların
+tümü okuma anında türetilir; saklanan kolon değildir.
+
+```text
+hasInformation             -> studyId üzerinde en az bir information note var
+imageMissing               -> status === IMAGE_MISSING
+hasRevisionRequest         -> status ∈ { REVISION_REQUESTED, REVISION_IN_PROGRESS }
+hasUnreportedSiblingStudy  -> aynı hastanın final raporu olmayan başka Study'si var
+```
+
+`hasUnreportedSiblingStudy` için "raporlanmış" sayılanlar:
+`FINAL`, `HBYS_PENDING`, `HBYS_SENT`, `HBYS_FAILED`. HBYS teslim hatası klinik
+olarak raporu yok saymaz. `WONT_REPORT` de sayılmaz: bilinçli kapatılmıştır,
+bekleyen iş değildir. Patient tek hastaneye bağlı olduğundan bu flag hastane
+scope'unun dışına çıkmaz.
+
+`hasRevisionRequest` şu an **status'tan** türetilir. `RevisionRequest` entity'si
+(`DATA_MODEL.md` 42) eklenene kadar, tamamlanmış bir revizyon geçmişi `false`
+okunur.
+
+`externalLockConflict` **bu sözleşmede yoktur**. `ExternalStudyLock` modeli
+mevcut değil; `false` dönmek "çakışma yok" iddiası olurdu ve backend bunu
+bilemez. Model geldiğinde eklenecek (`TASK_QUEUE.md` DISCOVERED-005).
+
+## 28.4 pacs
+
+Study detail **pacs bloğu taşımaz**.
+
+PACS ayrı uçlardan okunur:
+
+```text
+GET /studies/:id/pacs/viewer
+GET /studies/:id/pacs/series
+```
+
+Sebebi: PACS harici bir sistemdir. Detay cevabının içine gömülürse yavaş veya
+erişilemez bir PACS, hastanın ve çalışmanın temel verisini de geciktirir ya da
+düşürür. Görüntülerin gelip gelmediği `timestamps.imagesAvailableAt` ve
+`status` üzerinden zaten görünür; viewer durumu doktor viewer'ı açtığında
+istenir.
 
 ---
 
@@ -1021,28 +1103,51 @@ Content-Type:
 multipart/form-data
 ```
 
-Field:
+Alanlar:
 
 ```text
-file
+file        zorunlu   ses dosyası (blob)
+durationMs  opsiyonel kayıt süresi, ms, ondalıksız sayı
 ```
+
+Bu iki alan adı `packages/shared` içinde sabit olarak tanımlıdır:
+
+```ts
+DICTATION_UPLOAD_FIELD.FILE         // 'file'
+DICTATION_UPLOAD_FIELD.DURATION_MS  // 'durationMs'
+```
+
+Frontend recorder ve backend interceptor bu sabitleri kullanmalıdır. Yanlış
+alan adı `422 VALIDATION_ERROR` (`{"file": ["An audio file is required."]}`)
+üretir; bu bir kayıt hatası gibi görünür ama isim hatasıdır.
+
+`file` gönderilmezse istek 422 olur; raw body veya presigned PUT kabul edilmez.
 
 Backend object storage'a yükler.
 
-Response:
+Response — tam `DictationDto` (bkz. section 41):
 
 ```json
 {
   "data": {
     "id": "...",
+    "studyId": "...",
+    "doctor": { "id": "...", "displayName": "Test Doctor" },
     "status": "COMPLETED",
     "mimeType": "audio/webm",
     "fileSize": 845321,
     "durationMs": 127000,
-    "uploadedAt": "..."
+    "startedAt": "...",
+    "completedAt": "...",
+    "uploadedAt": "...",
+    "failureReason": null
   }
 }
 ```
+
+Yükleme başarısız olursa kayıt `COMPLETED` olmaz: `status` `FAILED` olur ve
+`failureReason` doldurulur. Frontend hiçbir koşulda başarısız yüklemeyi
+"dikte tamamlandı" olarak göstermemelidir.
 
 ---
 
@@ -1066,25 +1171,32 @@ Frontend presigned URL'yi zorunlu varsaymamalıdır.
 GET /api/v1/studies/{studyId}/dictations
 ```
 
-Response:
+Response — `DictationDto[]`:
 
 ```json
 {
   "data": [
     {
       "id": "...",
+      "studyId": "...",
       "doctor": {
         "id": "...",
         "displayName": "Test Doctor"
       },
       "status": "COMPLETED",
-      "durationMs": 127000,
       "mimeType": "audio/webm",
-      "createdAt": "..."
+      "fileSize": 845321,
+      "durationMs": 127000,
+      "startedAt": "...",
+      "completedAt": "...",
+      "uploadedAt": "...",
+      "failureReason": null
     }
   ]
 }
 ```
+
+Zaman alanı `startedAt`'tir (kaydın başladığı an), `createdAt` değil.
 
 ---
 

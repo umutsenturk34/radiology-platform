@@ -16,6 +16,9 @@ describe('Information notes (e2e)', () => {
 
   beforeEach(async () => {
     harness = await createTestHarness({
+      // The study detail reads the lock with the study, so the flag assertion
+      // below needs a working Redis stub.
+      withRedis: true,
       studies: [STUDY_IN_SCOPE_OLDEST, STUDY_OUT_OF_SCOPE],
       hospitalAccess: [
         { userId: 'u-doctor', hospitalId: STUDY_IN_SCOPE_OLDEST.hospitalId },
@@ -269,6 +272,36 @@ describe('Information notes (e2e)', () => {
 
       const response = await get(`/api/v1/information/${noteId}/versions`, 'doctor').expect(403);
       expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
+    });
+  });
+
+  describe('study flags', () => {
+    it('leaves hasInformation false until a note exists', async () => {
+      const response = await get(`/api/v1/studies/${STUDY}`, 'doctor').expect(200);
+
+      expect(response.body.data.flags.hasInformation).toBe(false);
+    });
+
+    it('raises hasInformation on the study once a note is added', async () => {
+      await addNote('doctor', 'kontrast alerjisi var');
+
+      const detail = await get(`/api/v1/studies/${STUDY}`, 'doctor').expect(200);
+      expect(detail.body.data.flags.hasInformation).toBe(true);
+
+      const list = await get(`/api/v1/studies?hospitalId=${STUDY_IN_SCOPE_OLDEST.hospitalId}`, 'doctor').expect(200); // prettier-ignore
+      const row = list.body.data.find((item: { id: string }) => item.id === STUDY);
+      expect(row.flags.hasInformation).toBe(true);
+    });
+
+    it('does not raise the flag on a different study', async () => {
+      await addNote('doctor', 'yalnizca bu study icin');
+
+      const list = await get(`/api/v1/studies?hospitalId=${STUDY_IN_SCOPE_OLDEST.hospitalId}`, 'doctor').expect(200); // prettier-ignore
+      const others = list.body.data.filter((item: { id: string }) => item.id !== STUDY);
+
+      for (const item of others) {
+        expect(item.flags.hasInformation).toBe(false);
+      }
     });
   });
 

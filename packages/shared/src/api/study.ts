@@ -1,15 +1,22 @@
 /**
  * Study read contracts (docs/API_CONTRACT.md sections 23-29 and 121).
  *
- * Scope note: these types cover what the phase-1 data model can actually
- * answer. `clinicalData`, `pacs`, `lock`, the derived SLA state and the
- * information/revision flags described in API_CONTRACT are added by their own
- * tasks (BACKEND-015 locks, BACKEND-019/020 PACS, BACKEND-041 information
- * notes). Nothing here is invented ahead of its model.
+ * Canonical: the frontend imports these instead of keeping its own copies
+ * (API_CONTRACT section 121). Every field here is answerable from real data —
+ * nothing is declared ahead of the model behind it. Two documented pieces are
+ * therefore still absent and tracked as their own tasks:
+ *
+ * - `flags.externalLockConflict` — needs `ExternalStudyLock`
+ *   (DATA_MODEL section 23), which does not exist. Reporting `false` would be
+ *   claiming there is no conflict when the platform cannot know.
+ * - `pacs` is NOT embedded here. It lives behind `GET /studies/:id/pacs/viewer`
+ *   and `/pacs/series`, so a slow or unreachable PACS cannot delay or fail the
+ *   study screen's own data (API_CONTRACT sections 36 and 37).
  */
 
 import type { PatientCategory } from '../enums/patient';
 import type { SlaState, StudyStatus } from '../enums/study';
+import type { StudyLockInfo } from './lock';
 import type { SortOrder } from './pagination';
 
 export interface StudyPatientSummary {
@@ -69,6 +76,56 @@ export interface StudySlaSnapshot {
   state: SlaState | null;
 }
 
+/**
+ * Operational badges shown next to a study (API_CONTRACT sections 26 and 28).
+ *
+ * Every one is derived from committed state at read time; none is a stored
+ * column, so a flag can never disagree with the row it describes.
+ *
+ * `externalLockConflict` from section 28 is deliberately not here — see the
+ * file header.
+ */
+export interface StudyFlags {
+  /** The study carries at least one information note. */
+  hasInformation: boolean;
+  /** The study is currently parked as IMAGE_MISSING. */
+  imageMissing: boolean;
+  /**
+   * A revision is open on this study: REVISION_REQUESTED or
+   * REVISION_IN_PROGRESS. Derived from the status, which is the only record a
+   * revision leaves until `RevisionRequest` (DATA_MODEL section 42) exists — so
+   * a revision that has already been completed reads as false.
+   */
+  hasRevisionRequest: boolean;
+  /**
+   * The same patient has another study that has not produced a final report
+   * (docs/FRONTEND.md section 111). Studies closed as WONT_REPORT do not count:
+   * they are not outstanding work.
+   *
+   * Patients are scoped to one hospital, so this never reveals a study outside
+   * the caller's hospital scope.
+   */
+  hasUnreportedSiblingStudy: boolean;
+}
+
+/**
+ * Clinical context the hospital sent with the order
+ * (docs/DATA_MODEL.md sections 28-29, INTEGRATIONS section 15).
+ *
+ * Null on a study whose HL7 messages carried no clinical block at all — which
+ * the client must show as "not supplied", never as an empty finding.
+ */
+export interface StudyClinicalData {
+  preDiagnosis: string | null;
+  requestReason: string | null;
+  patientComplaint: string | null;
+  previousStudyInfo: string | null;
+  requestingPhysician: string | null;
+  department: string | null;
+  /** Hospital-specific extras that have no internal field of their own. */
+  additionalData: Record<string, unknown> | null;
+}
+
 export interface StudyListItem {
   id: string;
   accessionNumber: string;
@@ -81,6 +138,7 @@ export interface StudyListItem {
   arrivalAt: string | null;
   sla: StudySlaSnapshot;
   assignment: StudyAssignmentSummary;
+  flags: StudyFlags;
 }
 
 /** Workflow timestamps recorded on the Study row. */
@@ -109,9 +167,19 @@ export interface StudyDetail {
     externalOrderId: string | null;
     externalProtocolId: string | null;
   };
+  clinicalData: StudyClinicalData | null;
   arrivalAt: string | null;
   sla: StudySlaSnapshot;
   assignment: StudyAssignmentSummary;
+  /**
+   * Live lock state, the same shape `GET /studies/:id/lock` returns.
+   *
+   * Read once with the study so the workspace can render "someone else is
+   * reading this" without a second round trip; keep it fresh from the
+   * `study.locked` / `study.unlocked` realtime events rather than by polling.
+   */
+  lock: StudyLockInfo;
+  flags: StudyFlags;
   timestamps: StudyTimestamps;
 }
 
@@ -162,6 +230,8 @@ export interface StudyListQuery {
   status?: StudyStatus;
   category?: PatientCategory;
   pool?: StudyPool;
+  /** Derived SLA state (API_CONTRACT section 92); not a stored column. */
+  slaState?: SlaState;
   assignedDoctorId?: string;
   assignedReporterId?: string;
   search?: string;

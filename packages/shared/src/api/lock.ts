@@ -8,8 +8,23 @@
 
 import type { UserRole } from '../enums/user';
 
+/**
+ * Where a lock comes from (API_CONTRACT section 28, REALTIME_EVENTS section 24).
+ *
+ * Only INTERNAL exists today: every lock is one this platform took in Redis.
+ * The hospital-side `ExternalStudyLock` of DATA_MODEL section 23 has no model
+ * yet, so no second value is declared ahead of it.
+ */
+export const StudyLockType = {
+  INTERNAL: 'INTERNAL',
+} as const;
+
+export type StudyLockType = (typeof StudyLockType)[keyof typeof StudyLockType];
+
 export interface StudyLockInfo {
   locked: boolean;
+  /** Null exactly when `locked` is false — there is no lock to classify. */
+  type: StudyLockType | null;
   ownerUserId: string | null;
   ownerDisplayName: string | null;
   ownerRole: UserRole | null;

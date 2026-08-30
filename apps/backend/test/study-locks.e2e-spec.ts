@@ -317,5 +317,27 @@ describe('Study locks (e2e)', () => {
 
       expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
     });
+
+    /**
+     * The workspace screen reads the study once and needs to know straight away
+     * that someone else holds it (API_CONTRACT section 28). The embedded block
+     * must therefore agree with the dedicated endpoint, not lag behind it.
+     */
+    it('is embedded in the study detail and matches the dedicated endpoint', async () => {
+      await post(`/api/v1/studies/${STUDY}/start-reading`, 'doctorA').expect(200);
+
+      const [detail, lock] = await Promise.all([
+        get(`/api/v1/studies/${STUDY}`, 'doctorB').expect(200),
+        get(`/api/v1/studies/${STUDY}/lock`, 'doctorB').expect(200),
+      ]);
+
+      expect(detail.body.data.lock).toMatchObject({
+        locked: true,
+        type: 'INTERNAL',
+        ownerUserId: 'u-doctor',
+        ownerRole: 'DOCTOR',
+      });
+      expect(detail.body.data.lock.ownerDisplayName).toBe(lock.body.data.ownerDisplayName);
+    });
   });
 });

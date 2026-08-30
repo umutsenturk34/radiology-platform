@@ -2,6 +2,24 @@
 
 import type { DictationStatus } from '../enums/dictation';
 
+/**
+ * Multipart contract for `POST /dictations/:id/upload`
+ * (docs/API_CONTRACT.md section 39).
+ *
+ * Named here so the browser recorder and the backend interceptor cannot drift:
+ * a mismatched field name fails as "an audio file is required", which reads
+ * like a recording bug rather than a naming bug.
+ *
+ * The request is `multipart/form-data`, never a raw body and never a presigned
+ * PUT — the pilot uploads through the backend (section 40).
+ */
+export const DICTATION_UPLOAD_FIELD = {
+  /** Required. The recorded audio blob. */
+  FILE: 'file',
+  /** Optional. Recorded length in milliseconds, as a decimal string. */
+  DURATION_MS: 'durationMs',
+} as const;
+
 export interface DictationDoctorSummary {
   id: string;
   displayName: string;

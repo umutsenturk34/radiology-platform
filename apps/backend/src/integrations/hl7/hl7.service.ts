@@ -12,6 +12,7 @@ import {
   Hl7UnknownHospitalException,
 } from '../contracts/integration.errors';
 import type {
+  NormalizedClinicalData,
   NormalizedHl7FirstEvent,
   NormalizedHl7SecondEvent,
 } from '../contracts/hl7.contract';
@@ -102,6 +103,8 @@ export class Hl7Service {
           select: { id: true },
         });
 
+        await this.persistClinicalData(tx, study.id, event.clinicalData);
+
         await this.audit.record(
           {
             eventType: AuditEventType.HL7_FIRST_RECEIVED,
@@ -114,8 +117,9 @@ export class Hl7Service {
               accessionNumber: event.study.accessionNumber,
               externalMessageId: event.externalMessageId,
               receivedAt: event.receivedAt,
-              // No ClinicalData model exists yet (DISCOVERED-003); keeping the
-              // normalized block here means the order details are not lost.
+              // Also kept on the audit record: the ClinicalData row is the
+              // live view and can be enriched later, while this stays the
+              // record of what this particular message actually carried.
               clinicalData: event.clinicalData,
             },
           },
@@ -257,6 +261,8 @@ export class Hl7Service {
     );
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.persistClinicalData(tx, study.id, event.clinicalData);
+
       await this.audit.record(
         {
           eventType: AuditEventType.HL7_SECOND_RECEIVED,
@@ -439,6 +445,52 @@ export class Hl7Service {
   }
 
   /**
+   * Stores the normalized clinical block against the study
+   * (docs/DATA_MODEL.md sections 28-29, INTEGRATIONS.md section 15).
+   *
+   * Enriches rather than replaces. The two HL7 messages can carry different
+   * subsets of the same order, so a field the second message omits must keep the
+   * value the first one supplied — silently blanking a pre-diagnosis a
+   * radiologist is about to read would be worse than having none.
+   *
+   * Runs inside the caller's transaction: clinical context that only half
+   * committed alongside the study would be worse than none at all.
+   */
+  private async persistClinicalData(
+    tx: Prisma.TransactionClient,
+    studyId: string,
+    clinical: NormalizedClinicalData | undefined,
+  ): Promise<void> {
+    if (!clinical) return;
+
+    // Undefined entries are skipped by Prisma in both create and update, which
+    // is exactly the "do not erase what is missing" rule above.
+    const supplied = {
+      preDiagnosis: clinical.preDiagnosis,
+      requestReason: clinical.requestReason,
+      patientComplaint: clinical.patientComplaint,
+      previousStudyInfo: clinical.previousStudyInfo,
+      requestingPhysician: clinical.requestingPhysician,
+      department: clinical.department,
+    };
+
+    const existing = await tx.clinicalData.findUnique({
+      where: { studyId },
+      select: { additionalData: true },
+    });
+
+    const additionalData = mergeAdditionalData(existing?.additionalData, clinical.additionalData);
+    const extras = additionalData ? { additionalData } : {};
+
+    if (!existing) {
+      await tx.clinicalData.create({ data: { studyId, ...supplied, ...extras } });
+      return;
+    }
+
+    await tx.clinicalData.update({ where: { studyId }, data: { ...supplied, ...extras } });
+  }
+
+  /**
    * Freezes the SLA deadline at arrival, so a later policy change cannot move a
    * historical deadline (docs/DATA_MODEL.md section 66).
    *
@@ -467,6 +519,28 @@ export class Hl7Service {
 
     return new Date(arrivalAt.getTime() + policy.durationMinutes * 60_000);
   }
+}
+
+/**
+ * Union of the hospital-specific extras seen so far, newest values winning.
+ *
+ * Returns undefined when the message carried no extras, so the caller leaves
+ * the stored column untouched instead of overwriting it with an empty object.
+ */
+function mergeAdditionalData(
+  existing: unknown,
+  incoming: Record<string, unknown> | undefined,
+): Prisma.InputJsonObject | undefined {
+  if (!incoming) return undefined;
+
+  const base =
+    typeof existing === 'object' && existing !== null && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+
+  // The adapter has already validated this block down to JSON-safe values
+  // (hl7-normalization.ts), so the cast asserts what normalization guarantees.
+  return { ...base, ...incoming } as Prisma.InputJsonObject;
 }
 
 function isUniqueViolation(error: unknown): boolean {

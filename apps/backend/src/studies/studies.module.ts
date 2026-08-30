@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { StudiesController } from './studies.controller';
 import { StudyActionsController } from './study-actions.controller';
 import { StudiesService } from './studies.service';
+import { StudyFlagsService } from './study-flags.service';
 import { StudyImagesService } from './study-images.service';
 import { StudyActionsService } from './study-actions.service';
 import { AuthModule } from '../auth/auth.module';
@@ -23,7 +24,7 @@ import { RealtimeModule } from '../realtime/realtime.module';
 @Module({
   imports: [AuthModule, WorkflowModule, LocksModule, DictationsModule, SlaModule, RealtimeModule],
   controllers: [StudyActionsController, StudiesController],
-  providers: [StudiesService, StudyImagesService, StudyActionsService],
-  exports: [StudiesService, StudyImagesService, StudyActionsService],
+  providers: [StudiesService, StudyFlagsService, StudyImagesService, StudyActionsService],
+  exports: [StudiesService, StudyFlagsService, StudyImagesService, StudyActionsService],
 })
 export class StudiesModule {}

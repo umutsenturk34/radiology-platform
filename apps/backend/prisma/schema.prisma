@@ -301,6 +301,7 @@ model Study {
   report           Report?
   hbysDeliveries   HbysDelivery[]
   informationNotes InformationNote[]
+  clinicalData     ClinicalData?
 
   /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
   /// are only unique within a hospital.
@@ -580,6 +581,37 @@ model AuditLog {
   @@index([eventType, createdAt])
   @@index([actorUserId, createdAt])
   @@map("audit_logs")
+}
+
+/// Clinical context the hospital sends with the order
+/// (DATA_MODEL.md sections 28 and 29, INTEGRATIONS.md section 15).
+///
+/// One row per study. The second HL7 may carry fields the first one did not, so
+/// the row is enriched in place rather than duplicated — and a later message
+/// that omits a field must not erase what an earlier one supplied.
+///
+/// The commonly used fields are real columns; anything hospital-specific goes
+/// to `additionalData` so nothing the hospital sent is dropped (section 29).
+model ClinicalData {
+  id      String @id @default(uuid()) @db.Uuid
+  studyId String @unique @db.Uuid
+
+  preDiagnosis      String? @db.Text
+  requestReason     String? @db.Text
+  patientComplaint  String? @db.Text
+  previousStudyInfo String? @db.Text
+
+  requestingPhysician String?
+  department          String?
+
+  additionalData Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  study Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  @@map("clinical_data")
 }
 
 /// Free-text note a clinician leaves on a study (DATA_MODEL.md section 47).

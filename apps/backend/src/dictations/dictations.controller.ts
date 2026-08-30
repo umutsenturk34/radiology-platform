@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { UserRole } from '@radiology/shared';
+import { DICTATION_UPLOAD_FIELD, UserRole } from '@radiology/shared';
 import { DictationsService } from './dictations.service';
 import { CreateDictationDto, UploadDictationDto } from './dto/create-dictation.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -49,11 +49,14 @@ export class DictationsController {
    * Multipart upload. Held in memory rather than written to a temp file: the
    * size cap is small, and the bytes go straight to object storage
    * (docs/API_CONTRACT.md sections 39 and 40).
+   *
+   * The field names come from the shared contract so the browser recorder and
+   * this interceptor cannot drift apart (`DICTATION_UPLOAD_FIELD`).
    */
   @Roles(UserRole.DOCTOR)
   @Post('dictations/:dictationId/upload')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor(DICTATION_UPLOAD_FIELD.FILE))
   async upload(
     @CurrentUser() user: AuthenticatedUser,
     @Param('dictationId', uuidPipe('dictationId')) dictationId: string,
@@ -61,7 +64,9 @@ export class DictationsController {
     @Body() dto: UploadDictationDto,
   ) {
     if (!file) {
-      throw new ValidationAppException({ file: ['An audio file is required.'] });
+      throw new ValidationAppException({
+        [DICTATION_UPLOAD_FIELD.FILE]: ['An audio file is required.'],
+      });
     }
 
     return this.dictations.upload(user, dictationId, file, dto);
