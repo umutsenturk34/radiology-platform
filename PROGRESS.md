@@ -327,7 +327,7 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-007.
+IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-009.
 
 Doctor login ve temel GET /studies akışı canlı Railway backend ile tarayıcıda
 doğrulandı. FRONTEND-005 operasyonel havuz görünümü; gerçek kategori, hastane,
@@ -352,12 +352,11 @@ FRONTEND-006 DONE — iki doktorla aynı gerçek study üzerinde canlı lock kab
 PASS: Doctor A 200 ile okumaya geçti; Doctor B 423 `STUDY_LOCKED` aldı ve UI
 sahip, rol ve kilit durumunu gösterdi.
 
-FRONTEND-007 IN_PROGRESS — backend handoff'taki canonical shared StudyDetail,
-StudyLockInfo, DictationDto, PACS ve Information sözleşmeleri kullanıldı.
-Workspace gerçek study detail, clinicalData, flags, SLA, detail lock, dikte
-listesi, PACS viewer/seri ve Information notlarını REST'ten gösterir. clinical
-bilgi `null` ve PACS viewer `available=false` gerçek durum olarak sunulur;
-sahte business verisi üretilmez.
+FRONTEND-007 DONE — canlı browser acceptance PASS: doctor login, study detail,
+SLA, assignment/workflow, gerçek dictation listesi, clinicalData, Information,
+PACS viewer/series ve operational flags doğrulandı. clinical bilgi `null` ve
+PACS viewer `available=false` gerçek durum olarak sunulur; sahte business verisi
+üretilmez.
 ```
 
 ## Current Frontend Task
@@ -365,12 +364,12 @@ sahte business verisi üretilmez.
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-007 — Doctor Study Workspace
+FRONTEND-009 — Browser Audio Recorder
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-007: gerçek StudyDetail ve lock sözleşmesiyle doktor workspace.
+FRONTEND-009: gerçek browser mikrofon kaydını backend upload akışına bağla.
 
 ## Recently Completed Frontend Tasks
 
@@ -379,7 +378,7 @@ FRONTEND-001 — Next.js Application Bootstrap (commit: 00f2e5b)
 FRONTEND-004 — Role Based App Shell (commit: 898e545; canlı acceptance PASS)
 FRONTEND-005 — Study List Foundation (commit: 5106a97; canlı acceptance PASS)
 FRONTEND-006 — Lock UI (commit: bc39d06; canlı acceptance PASS)
-FRONTEND-007 — Doctor Study Workspace (kısmi implementation; canlı acceptance bekliyor)
+FRONTEND-007 — Doctor Study Workspace (commit: 756cd16; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -387,10 +386,9 @@ Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ## Frontend Blockers
 
 ```text
-Railway deploy SUCCESS bilgisi alındı. Ancak browser'da denenen önceki varsayılan
-parola `doctor@test.local` için hâlâ `401 INVALID_CREDENTIALS` döndürüyor;
-güncel parolanın değeri frontend tarafıyla paylaşılmadı. Authenticated browser
-acceptance tamamlanana kadar FRONTEND-007 IN_PROGRESS kalır.
+DEVOPS-004 açık: object storage kalıcılığı çözülmedi. FRONTEND-009 kayıt ve
+upload akışı bu nedenle hazırlanabilir/doğrulanabilir; ancak redeploy sonrası
+audio persistence acceptance'ı DONE sayılmayacak.
 ```
 
 ## Frontend Known Issues
@@ -405,10 +403,17 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-007: güncel Railway test doktoru parolasıyla browser'da giriş yap;
-gerçek study açıp detail, clinicalData, flags, SLA, lock, dikte, PACS ve
-Information alanlarını doğrula. Bu acceptance PASS olmadan task'ı DONE yapma.
-Sonraki P0 sırası: FRONTEND-009, ardından FRONTEND-011.
+FRONTEND-009: MediaRecorder permission/start/stop/timer/upload/error/success
+akışını canonical `DICTATION_UPLOAD_FIELD` ile uygula. Object storage
+persistence kabulünü DEVOPS-004 çözülmeden DONE sayma; sonra FRONTEND-011.
+```
+
+## Frontend Observation
+
+```text
+FRONTEND-007 canlı acceptance sırasında Study READING iken ekranda
+"Çalışma kilidi: Kilit yok" göründü. FRONTEND-006 iki doktorla lock/423
+acceptance'ı daha önce PASS olduğu için bu FRONTEND-007 blocker değildir.
 ```
 
 ---

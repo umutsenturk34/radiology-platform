@@ -197,7 +197,7 @@ de çalıştırılır.
 
 **Owner:** SHARED  
 **Priority:** P0  
-**Status:** DONE  
+**Status:** DONE
 **Depends On:** none
 
 ### Amaç
@@ -1395,7 +1395,7 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS  
+**Status:** DONE
 **Depends On:** FRONTEND-006
 
 ### Bölümler
@@ -1423,11 +1423,15 @@ tek çalışma ekranında kritik veriler var.
   eklendi; klinik veri `null` ise ekran bunu hastanenin göndermediği gerçek
   durum olarak gösterir. Viewer `available=false` ise sahte viewer üretilmez.
 - FRONTEND-009 kayıt alma akışı henüz eklenmediğinden dikte bölümü yalnız mevcut
-  backend kayıtlarını gösterir. Canlı workspace kabulü tamamlanmadan `DONE`
-  yapılmayacak.
-- Canlı browser acceptance henüz tamamlanmadı: 2026-08-31 tarihinde denenen
-  önceki varsayılan test parolası `401 INVALID_CREDENTIALS` döndü; güncel
-  credential değeri frontend tarafıyla paylaşılmadı.
+  backend kayıtlarını gösterir.
+
+### Completed
+
+- Canlı browser acceptance PASS: doctor login, study detail, SLA,
+  assignment/workflow, gerçek dictation listesi, clinicalData, Information,
+  PACS viewer/series ve operational flags doğrulandı.
+- PACS viewer `available=false` / `PACS_VIEWER_NOT_CONFIGURED` gerçek durum
+  olarak gösterildi; fake viewer üretilmedi.
 
 ---
 
@@ -1603,7 +1607,7 @@ Testler: 11 playback-token birim testi + 24 e2e.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-007, BACKEND-023
 
 ### Özellikler
