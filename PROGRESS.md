@@ -156,8 +156,9 @@ Information notes, PACS, realtime and the manager APIs are the P1 queue.
 ## Current Backend Task
 
 ```text
-None claimed. BACKEND-055..058, BACKEND-039, BACKEND-041, BACKEND-019/020
-and BACKEND-045 are DONE.
+None claimed. The frontend contract handoff (DISCOVERED-003 + DISCOVERED-004)
+is DONE; StudyDetail now answers everything API_CONTRACT section 28 asks for
+except the two items that have no model (see Blockers).
 ```
 
 ## Next Recommended Backend Task
@@ -165,6 +166,7 @@ and BACKEND-045 are DONE.
 ```text
 BACKEND-042 Image missing               (P1, next to claim)
 -> BACKEND-040 Accelerated SLA dev mode (P2, builds on BACKEND-039)
+-> DISCOVERED-005 External lock model   (P2, unblocks flags.externalLockConflict)
 ```
 
 ## Recently Completed Backend Tasks
@@ -212,6 +214,12 @@ BACKEND-038 Manual HBYS retry                  DONE  (b694dcf)
 DEVOPS-001  Backend Railway preparation        DONE  (93c72db)
 DEVOPS-002  Railway PostgreSQL                 DONE  (93c72db)
 DEVOPS-003  Railway Redis                      DONE  (93c72db)
+BACKEND-041 Information notes                  DONE  (4170e99)
+BACKEND-019 PACS adapter contract              DONE  (0c8b514)
+BACKEND-020 PACS read endpoints                DONE  (0c8b514)
+BACKEND-045 Realtime gateway                   DONE  (63f859e)
+DISCOVERED-003 Clinical data model             DONE  (see Frontend handoff)
+DISCOVERED-004 Study detail contract           DONE  (see Frontend handoff)
 ```
 
 ## Backend Blockers
@@ -411,36 +419,74 @@ Verified live over a real socket after the deploy:
 Every one of those came from a real REST action, not from a test emitter.
 
 Last Successful Command:
-pnpm lint / pnpm typecheck / pnpm build  -> PASS
-backend unit tests 349 PASS
-backend e2e tests  324 PASS  (two consecutive clean runs)
-live websocket smoke over the public URL -> PASS
+pnpm lint      -> PASS (0 errors, 1 pre-existing warning)
+pnpm typecheck -> PASS
+pnpm build     -> PASS
+backend unit tests 367 PASS
+backend e2e tests  338 PASS
+prisma migrate deploy -> 20260831120000_add_clinical_data applied to Railway
+prisma migrate status -> "Database schema is up to date"
 
 Current Problem:
-None.
+The Railway pilot database was seeded with a SEED_DEFAULT_PASSWORD that is not
+in this worktree's .env, and this worktree is not `railway link`ed, so the new
+detail contract could NOT be smoke-tested over live HTTP this session. The
+schema change itself was verified directly against the Railway database
+(clinical_data table present with all 11 columns; 21 existing studies
+untouched). Every endpoint below is covered by the e2e suite over real HTTP.
 
 Next Action:
-1. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
+1. Live-verify the new StudyDetail against Railway once the pilot password is
+   available, then redeploy (`railway up --service backend`) so the frontend
+   consumes the completed contract. The running deployment is UNAFFECTED by
+   the migration — it is a new table the old build never reads.
+2. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
    dev mode, which the sweeper now makes testable.
-2. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
+3. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
    the service. Dictation audio is still lost on every redeploy.
-3. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL and
+4. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL and
    redeploy. This now matters for the websocket too, not only for REST.
-4. Turn DEV_TOOLS_ENABLED off before any real patient data.
+5. Turn DEV_TOOLS_ENABLED off before any real patient data.
 
-Frontend contract gaps for FRONTEND-007 / FRONTEND-009:
-- StudyDetail has no `clinicalData` (no model yet, DISCOVERED-003) and no
-  `flags` object. API_CONTRACT defines `flags` twice with contradictory field
-  lists (section 26 vs 28), so it was not invented; the contract has to pick
-  one shape first.
-- StudyDetail carries no `lock` object. The lock is a separate call,
-  GET /studies/:id/lock, plus the study.locked / study.unlocked events.
-- The frontend still keeps its own StudyListItem / StudyDetail copies instead
-  of importing from @radiology/shared, and they are now behind by the SLA
-  fields. Realtime event types are canonical in @radiology/shared/realtime;
-  importing them rather than re-declaring avoids the same drift.
-- Dictation upload is multipart with a `file` field, not a raw body
-  (FRONTEND-009).
+Repository housekeeping (pre-existing, not introduced here):
+`pnpm format:check` is red across 38 files, including files this session did
+not touch (pnpm-workspace.yaml, reports.service.ts, ...). Every file that
+fails was already unformatted at be870d2. Left alone on purpose: a repo-wide
+`prettier --write` would bury this change. Worth its own commit.
+
+Frontend contract handoff for FRONTEND-007 / FRONTEND-009 — CLOSED:
+- `StudyDetail.clinicalData` exists. `ClinicalData` model + migration
+  20260831120000_add_clinical_data applied to Railway (additive; the 21
+  existing studies were untouched). The HL7 service writes it on both
+  messages and enriches rather than overwrites. Null when the hospital sent
+  no clinical block at all.
+- `flags` is one canonical object on BOTH list and detail:
+  hasInformation / imageMissing / hasRevisionRequest /
+  hasUnreportedSiblingStudy. The section 26 vs 28 contradiction was resolved
+  in API_CONTRACT 28.3, not papered over.
+- `StudyDetail.lock` exists and is the same StudyLockInfo the dedicated
+  endpoint returns, plus `type: 'INTERNAL' | null`. Consequence: the detail
+  read now depends on Redis and fails closed with 503 rather than reporting
+  a study as unlocked. The LIST deliberately has no lock, so a Redis outage
+  cannot take the whole work list down.
+- `pacs` stays out of StudyDetail on purpose (API_CONTRACT 28.4): the viewer
+  and series have their own endpoints, so a slow PACS cannot delay the
+  patient's own data.
+- Dictation multipart field names are now constants in @radiology/shared
+  (DICTATION_UPLOAD_FIELD.FILE = 'file', .DURATION_MS = 'durationMs') and the
+  backend interceptor reads them from there, so the two cannot drift.
+- The frontend must now import StudyListItem / StudyDetail / StudyFlags /
+  StudyClinicalData / StudyLockInfo / DictationDto / InformationNoteDto /
+  StudyPacsViewer / StudyPacsSeries and the realtime types from
+  @radiology/shared, and delete its local copies (API_CONTRACT section 121).
+
+Commits the frontend branch must take (agent/backend):
+  see the Frontend Resume Pointer section.
+
+Still open for the frontend, with no backend answer yet:
+- flags.externalLockConflict — no ExternalStudyLock model (DISCOVERED-005).
+  Not returned as `false`; the backend cannot know.
+- Dictation audio does not survive a Railway redeploy (DEVOPS-004).
 
 Deployment notes:
 - Redeploy: railway up --service backend
@@ -502,10 +548,65 @@ Read:
 AGENTS.md
 docs/TASK_QUEUE.md
 docs/FRONTEND.md
+docs/API_CONTRACT.md sections 26, 28, 28.1-28.4, 36-45, 68-72
 
 Then:
 Claim highest-priority available FRONTEND task whose dependencies are satisfied.
 ```
+
+## Backend Contract Handoff — FRONTEND-007 / FRONTEND-009
+
+The backend side of both tasks is complete and covered by e2e tests over real
+HTTP. Full endpoint lists, per-section data sources and the dictation error
+contract live in `docs/TASK_QUEUE.md` under FRONTEND-007 and FRONTEND-009.
+
+Commits to bring across from `agent/backend` (in order):
+
+```text
+9b72457  refactor(shared): lock, dictation, report and hbys contracts canonical
+e577de6  feat(sla): derive state, remaining and overdue from the frozen deadline
+4170e99  feat(information): information notes with preserved history
+0c8b514  feat(pacs): adapter boundary and the pilot test adapter
+63f859e  feat(realtime): websocket gateway and workflow-derived events
+f3ddc35  feat(studies): complete the study detail contract for the frontend
+```
+
+Only `f3ddc35` is new since the last handoff; the five before it are listed
+because a frontend branch that has not merged `agent/backend` recently needs
+them for `@radiology/shared` to compile.
+
+Endpoints FRONTEND-007 can call today (base `/api/v1`):
+
+```text
+GET  /studies/:studyId                  StudyDetail
+GET  /studies/:studyId/lock             StudyLockInfo
+POST /studies/:studyId/lock/heartbeat   { valid, expiresInSeconds }
+POST /studies/:studyId/lock/release     { released }
+GET  /studies/:studyId/dictations       DictationDto[]
+GET  /dictations/:dictationId/playback  DictationPlaybackDto
+GET  /studies/:studyId/information      InformationNoteDto[]
+POST /studies/:studyId/information      CreatedInformationNote (201)
+PUT  /information/:noteId               InformationNoteDto
+GET  /information/:noteId/versions      InformationNoteVersionDto[]
+GET  /studies/:studyId/pacs/viewer      StudyPacsViewer
+GET  /studies/:studyId/pacs/series      StudyPacsSeries[]
+WS   /realtime                          token in the Socket.IO handshake auth
+```
+
+FRONTEND-009 sequence:
+
+```text
+POST /studies/:studyId/start-reading      -> lock + READING
+POST /studies/:studyId/dictations         -> DictationDto (RECORDING)
+POST /dictations/:dictationId/upload      -> multipart: file, durationMs
+POST /studies/:studyId/complete-reading   -> WAITING_TRANSCRIPTION
+```
+
+Do not hard-code the multipart field names; import
+`DICTATION_UPLOAD_FIELD` from `@radiology/shared`.
+
+A failed upload returns `status: FAILED` with `failureReason`, never
+`COMPLETED`. The recorder must not show success in that case.
 
 ---
 
@@ -525,6 +626,24 @@ lint/format configuration  [x]  flat ESLint 9 + Prettier
 workspace scripts          [x]  lint / typecheck / build / test
 @radiology/shared          [x]  8 enums + ApiError / PaginatedResponse
 ```
+
+Canonical API contracts now in `@radiology/shared` (API_CONTRACT section 121):
+
+```text
+StudyListItem  StudyDetail  StudyFlags  StudyClinicalData  StudySlaSnapshot
+StudyLockInfo  StudyLockType  AcquiredLockInfo
+DictationDto   DictationPlaybackDto   DICTATION_UPLOAD_FIELD
+ReportDto      ReportVersionDto       SaveReportDraftResult
+HbysDeliveryDto  HbysDeliveryAttemptDto
+InformationNoteDto  InformationNoteVersionDto  CreatedInformationNote
+StudyPacsViewer  StudyPacsSeries
+RealtimeEventType  RealtimeEventPayloads  RealtimeCommand  realtimeRoom
+ApiErrorCode  PaginatedResponse  PaginationMeta
+```
+
+The frontend must import these rather than keep local copies. Backend code
+imports the same symbols, so a contract change breaks both sides at compile
+time instead of at runtime.
 
 Shared package is consumed by the backend. The frontend does not exist yet, so
 its import is unverified (Codex closes that under FRONTEND-002).

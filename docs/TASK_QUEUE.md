@@ -834,22 +834,22 @@ Manager:
 
 ### Kapsam notu (fabrikasyon yok)
 
-API_CONTRACT section 26/28 ayrıca `clinicalData`, `pacs`, `lock`, türetilmiş
-SLA state'i ve `flags` alanlarını tanımlıyor. Bunların arkasındaki modeller
-henüz yok, bu yüzden **uydurulmadı**; kendi görevleriyle gelecekler:
+İlk teslimde API_CONTRACT section 26/28'deki `clinicalData`, `pacs`, `lock`,
+türetilmiş SLA state'i ve `flags` alanları **uydurulmadı**; modelleri yoktu.
+Hepsi kendi görevleriyle kapandı:
 
 ```text
-lock            -> BACKEND-015
-pacs            -> BACKEND-019 / BACKEND-020
-sla.state       -> BACKEND-039   (şu an yalnızca saklanan deadlineAt dönüyor)
-flags           -> BACKEND-041 (information) ve revision görevleri
-clinicalData    -> ilgili model eklendiğinde
+lock            -> BACKEND-015          + DISCOVERED-004 (detail'e gömüldü)
+pacs            -> BACKEND-019/020      (ayrı uçlar; detail'e gömülmedi, bkz. API_CONTRACT 28.4)
+sla.state       -> BACKEND-039
+flags           -> DISCOVERED-004
+clinicalData    -> DISCOVERED-003
 ```
 
-Paylaşılan sözleşme `packages/shared/src/api/study.ts` içine eklendi
-(`StudyListItem`, `StudyDetail`, `StudyPool`, `StudySortField`,
-`StudyListQuery`) — API_CONTRACT section 121 bunları zaten shared type olarak
-listeliyor. Frontend etkisi: yukarıdaki eksik alanlar sonradan eklenecek.
+Paylaşılan sözleşme `packages/shared/src/api/study.ts` içinde
+(`StudyListItem`, `StudyDetail`, `StudyFlags`, `StudyClinicalData`,
+`StudyPool`, `StudySortField`, `StudyListQuery`) — API_CONTRACT section 121
+bunları shared type olarak listeliyor.
 
 ### Testler
 
@@ -1377,6 +1377,60 @@ Seed yeniden çalıştırıldı: 6 kullanıcı, 6 hospital access, duplicate yok
 
 tek çalışma ekranında kritik veriler var.
 
+### Backend hazır — canlı uçlar (DISCOVERED-003/004 sonrası)
+
+Base path `/api/v1`. Tüm tipler `@radiology/shared`'dan import edilmelidir;
+frontend'in kendi `StudyDetail` / `StudyListItem` kopyası **kalmamalıdır**
+(API_CONTRACT section 121).
+
+```text
+GET  /studies/:studyId                  StudyDetail
+GET  /studies/:studyId/lock             StudyLockInfo
+POST /studies/:studyId/lock/heartbeat   { valid, expiresInSeconds }
+POST /studies/:studyId/lock/release     { released }
+
+GET  /studies/:studyId/dictations       DictationDto[]
+GET  /dictations/:dictationId/playback  DictationPlaybackDto  { url, expiresAt }
+
+GET  /studies/:studyId/information      InformationNoteDto[]
+POST /studies/:studyId/information      CreatedInformationNote      (201)
+PUT  /information/:noteId               InformationNoteDto
+GET  /information/:noteId/versions      InformationNoteVersionDto[]
+
+GET  /studies/:studyId/pacs/viewer      StudyPacsViewer
+GET  /studies/:studyId/pacs/series      StudyPacsSeries[]
+```
+
+Realtime: Socket.IO namespace `/realtime`, token handshake `auth` içinde.
+Olay adları ve payload'lar `@radiology/shared/realtime` içinde canonical
+(`RealtimeEventType`, `RealtimeEventPayloads`). Realtime **source of truth
+değildir**: olay geldiğinde ilgili REST çağrısı tekrarlanır.
+
+Ekran bölümleri → veri kaynağı:
+
+```text
+patient        StudyDetail.patient
+study info     StudyDetail.study + StudyDetail.timestamps
+clinical info  StudyDetail.clinicalData      (null olabilir → "bilgi gelmedi")
+SLA            StudyDetail.sla               (state null → politikasız kategori)
+lock           StudyDetail.lock              + study.locked / study.unlocked
+Information    GET /studies/:id/information  + information.added / .updated
+PACS area      GET /studies/:id/pacs/viewer  (available=false ise reason göster)
+dictation      GET /studies/:id/dictations   + playback
+badge'ler      StudyDetail.flags
+```
+
+Dikkat:
+
+- `StudyDetail` **pacs bloğu taşımaz** (API_CONTRACT 28.4). Viewer ayrı uçtan,
+  doktor viewer'ı açtığında istenir.
+- `pacs/viewer` `available: false` dönebilir; bu hata değil, gösterilecek bir
+  durumdur. `reason` alanı "görüntüler geliyor" ile "entegrasyon bozuk" ayrımını
+  verir. Erişilemeyen viewer başarılı gibi gösterilmemelidir.
+- Study detail lock okuduğu için Redis'e bağımlıdır: Redis yoksa `503`. Bu
+  bilinçlidir (fail closed) — "kilitsiz" cevabı verilmez.
+- `flags.externalLockConflict` sözleşmede **yok** (DISCOVERED-005).
+
 ---
 
 # 18. PACS
@@ -1646,6 +1700,70 @@ Testler: 11 playback-token birim testi + 24 e2e.
 ### Acceptance
 
 gerçek mikrofon kaydı backend'e gidiyor.
+
+### Backend hazır — dikte sözleşmesi
+
+Sıra (her adım REST; hiçbiri WebSocket üzerinden yapılmaz):
+
+```text
+1. POST /studies/:studyId/start-reading
+   -> { studyId, status: READING, lock: {...}, readingStartedAt }
+   Lock burada alınır. lock.heartbeatIntervalSeconds kadar aralıkla
+   POST /studies/:studyId/lock/heartbeat gönderilmelidir.
+
+2. POST /studies/:studyId/dictations
+   body: { "mimeType": "audio/webm;codecs=opus" }   (opsiyonel)
+   -> 201, DictationDto (status RECORDING)
+
+3. POST /dictations/:dictationId/upload
+   Content-Type: multipart/form-data
+   alanlar: file (zorunlu), durationMs (opsiyonel)
+   -> 200, DictationDto (status COMPLETED)
+
+4. POST /studies/:studyId/complete-reading
+   body: { "dictationId": "..." }   (opsiyonel; verilmezse tamamlanmış
+                                     dikte aranır)
+   -> { studyId, status: WAITING_TRANSCRIPTION, readingCompletedAt,
+        lockReleased }
+```
+
+Multipart alan adları `@radiology/shared` içinde sabittir — string yazmayın:
+
+```ts
+import { DICTATION_UPLOAD_FIELD } from '@radiology/shared';
+
+form.append(DICTATION_UPLOAD_FIELD.FILE, blob, 'dictation.webm');
+form.append(DICTATION_UPLOAD_FIELD.DURATION_MS, String(durationMs));
+```
+
+Kabul edilen ses tipleri:
+
+```text
+audio/webm  audio/ogg  audio/mpeg  audio/mp4  audio/wav  audio/x-wav
+```
+
+Boyut tavanı `MAX_DICTATION_UPLOAD_BYTES` (pilot varsayılanı 50 MB).
+
+Hata sözleşmesi — `error.code` üzerinden dallanın, mesaja göre değil:
+
+```text
+422 VALIDATION_ERROR      details.file: alan adı yanlış / dosya yok /
+                          tip desteklenmiyor / boyut aşıldı
+423 LOCK_NOT_OWNED        lock başkasında ya da TTL doldu -> yeniden
+                          start-reading gerekir
+423 STUDY_LOCKED          başka bir doktor çalışmayı almış
+409 CONFLICT              dikte bu işlem için uygun durumda değil
+                          (ör. COMPLETED üzerine ikinci upload)
+403 FORBIDDEN             kaydı başlatan doktor değilsiniz
+422 DICTATION_REQUIRED    complete-reading tamamlanmış dikte olmadan çağrıldı
+422 INVALID_STATE_TRANSITION  study READING değil
+```
+
+Kritik UX kuralı (FRONTEND-010 ile ortak): yükleme başarısız olursa backend
+dikteyi `COMPLETED` yapmaz — `status: FAILED` ve `failureReason` döner.
+Kullanıcıya asla "kayıt tamamlandı" gösterilmemelidir.
+
+`durationMs` gönderilmezse kayıt yine tamamlanır, `durationMs: null` olur.
 
 ---
 
@@ -2572,19 +2690,19 @@ GET  /information/:noteId/versions       hastane scope'u içindeki kullanıcıla
   uçlarında da yeniden kontrol ediliyor; çağıranın study üzerinden geldiği
   varsayılmıyor.
 
-### Kapsam dışı bırakılan (uydurulmadı)
+### Kapsam dışı bırakılan (uydurulmadı) — sonradan çözüldü
 
-`flags.hasInformation` eklenmedi. API_CONTRACT section 26 ve section 28 `flags`
-nesnesini **birbiriyle çelişen** alan listeleriyle tanımlıyor:
+Bu görev tamamlandığında `flags.hasInformation` eklenmemişti: API_CONTRACT
+section 26 ve section 28 `flags` nesnesini **birbiriyle çelişen** alan
+listeleriyle tanımlıyordu.
 
 ```text
 section 26: hasInformation, hasRevisionRequest, hasUnreportedSiblingStudy, imageMissing
 section 28: hasInformation, imageMissing, revisionRequested, externalLockConflict
 ```
 
-İkisini birleştirmek ya birini seçmek uydurma olurdu. BACKEND-041'in kabul
-maddeleri zaten `flags` içermiyor. Sözleşme tek bir şekle karar verdiğinde
-eklenmeli — DISCOVERED olarak not edildi.
+Çelişki DISCOVERED-004 içinde tek bir şekle bağlandı ve `hasInformation` o
+görevle eklendi.
 
 ### Testler
 
@@ -4079,7 +4197,7 @@ Railway içi deploy'da bu değerler düşürülebilir.
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-004  
 **Keşfedildi:** BACKEND-011 sırasında
 
@@ -4089,19 +4207,34 @@ Railway içi deploy'da bu değerler düşürülebilir.
 klinik alanları (`preDiagnosis`, `requestReason`, `patientComplaint`,
 `previousStudyInfo`, `requestingPhysician`, `department`, `additionalData`)
 tanımlıyor, ancak `DATA_MODEL.md` phase-1 şemasında bunları tutacak bir tablo
-yok. HL7 adapter'ı bu alanları normalize ediyor fakat kalıcı bir yeri yok.
+yoktu. HL7 adapter'ı alanları normalize ediyor fakat kalıcı bir yeri yoktu.
 
-### Geçici çözüm (uygulandı)
+### Completed
 
-Normalize edilmiş blok `HL7_FIRST_RECEIVED` / `HL7_SECOND_RECEIVED` audit
-kaydının `metadata` alanında saklanıyor — veri kaybolmuyor, ancak
-`GET /studies/:id` üzerinden `clinicalData` olarak dönmüyor.
+- `ClinicalData` modeli (`DATA_MODEL.md` section 28) + migration
+  `20260831120000_add_clinical_data`, Railway'de uygulandı. Tamamen additive:
+  yeni tablo, mevcut tablolara dokunulmadı
+- Study ile 1-1 (`studyId` unique, `onDelete: Cascade`). Sık kullanılan alanlar
+  gerçek kolon, hastaneye özgü ekler `additionalData` JSONB (section 29)
+- `Hl7Service.persistClinicalData()` hem birinci hem ikinci HL7'de yazıyor.
+  **Zenginleştirir, ezmez:** sonraki mesajın taşımadığı alan, öncekinin verdiği
+  değeri silmez; `additionalData` birleştirilir. Bir radyoloğun okumak üzere
+  olduğu ön tanıyı sessizce boşaltmak, hiç olmamasından kötüdür
+- Yazma çağıranın transaction'ı içinde: yarım commit olmuş klinik bağlam
+  hiç olmamasından kötüdür
+- Audit metadata'sındaki kopya **kaldırılmadı**: `ClinicalData` satırı canlı
+  görünüm ve sonradan zenginleşebilir; audit kaydı ise o mesajın gerçekte ne
+  taşıdığının kaydıdır
+- `StudyDetail.clinicalData` (shared + API_CONTRACT section 28.1). Hiç klinik
+  alan gelmemişse `null` — boş klinik metin değil
+- Duplicate HL7 mesajları klinik veri de yazmaz (idempotency: hiçbir şey değişmez)
 
-### Yapılacaklar
+### Testler
 
-- `ClinicalData` modeli (Study ile 1-1) veya Study üzerinde JSON alan kararı
-- HL7 servisinin bu modele yazması
-- `StudyDetail` sözleşmesine `clinicalData` eklenmesi (shared + API_CONTRACT)
+```text
+src/integrations/hl7/hl7.service.spec.ts   klinik satır yazılıyor / blok yoksa satır yok
+test/studies.e2e-spec.ts                   detail saklanan bloğu ekleriyle döndürüyor
+```
 
 ---
 
@@ -4109,13 +4242,98 @@ kaydının `metadata` alanında saklanıyor — veri kaybolmuyor, ancak
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-015, BACKEND-020, BACKEND-039, BACKEND-041  
 **Keşfedildi:** BACKEND-009 sırasında
 
 ### Issue
 
 `API_CONTRACT.md` section 26/28'deki `lock`, `pacs`, türetilmiş `sla` state'i
-ve `flags` alanları henüz modellenmediği için `StudyListItem` / `StudyDetail`
-sözleşmesinde yok. Bunlar ilgili görevler tamamlandıkça eklenmelidir; frontend
-sözleşmesi o noktada güncellenecektir.
+ve `flags` alanları modellenmediği için `StudyListItem` / `StudyDetail`
+sözleşmesinde yoktu. Ayrıca `flags` iki bölümde **çelişen** alan listeleriyle
+tanımlıydı.
+
+### Karar — tek canonical `flags`
+
+Section 26 ve 28 birleştirildi; adlandırma section 26'nın `has*` düzenini
+izliyor. Liste ve detay **aynı** nesneyi taşır:
+
+```text
+hasInformation             information note sayısı > 0
+imageMissing               status === IMAGE_MISSING
+hasRevisionRequest         status ∈ { REVISION_REQUESTED, REVISION_IN_PROGRESS }
+hasUnreportedSiblingStudy  aynı hastanın final raporu olmayan başka Study'si
+```
+
+- `revisionRequested` (section 28) ile `hasRevisionRequest` (section 26) aynı
+  kavramdı; tek ad seçildi
+- `hasUnreportedSiblingStudy` tanımı: raporlanmış = FINAL / HBYS_PENDING /
+  HBYS_SENT / HBYS_FAILED (HBYS hatası raporu yok saymaz, TS-053).
+  `WONT_REPORT` de sayılmaz — bilinçli kapatılmış, bekleyen iş değil
+- `externalLockConflict` **eklenmedi**, bkz. DISCOVERED-005
+
+### Karar — `lock` detail'e gömüldü, listeye gömülmedi
+
+`StudyDetail.lock` = `StudyLockInfo` (`GET /studies/:id/lock` ile aynı gövde) +
+yeni `type: 'INTERNAL' | null`. Realtime `study.locked` payload'ındaki
+`lockType` de aynı `StudyLockType` union'ını kullanıyor.
+
+Liste satırına konmadı: lock Redis'te ve fail closed okunması gerekiyor
+(CLAUDE.md section 17). Her satıra koymak, tek bir Redis kesintisinde tüm
+çalışma listesini düşürürdü. Detay ise zaten Redis'e bağımlı — Redis yoksa
+`503`, "kilitsiz" cevabı değil (e2e ile kanıtlı).
+
+### Karar — `pacs` detail'e gömülmedi
+
+`GET /studies/:id/pacs/viewer` ve `/pacs/series` canonical kaldı
+(API_CONTRACT 28.4). Harici ve yavaş olabilen bir sistem, hastanın temel
+verisini geciktirmemeli. Görüntü varlığı `timestamps.imagesAvailableAt` ve
+`status` üzerinden zaten okunuyor.
+
+### Completed
+
+- `packages/shared`: `StudyFlags`, `StudyClinicalData`, `StudyLockType`,
+  `StudyListItem.flags`, `StudyDetail.{clinicalData,lock,flags}`,
+  `StudyListQuery.slaState` (backend'de vardı, sözleşmede eksikti)
+- `src/studies/study-flags.service.ts`: sayfa başına **iki** ek sorgu
+  (satır başına değil). Boş sayfada hiç sorgu yok
+- `API_CONTRACT.md` section 26, 28, 28.1-28.4 tek şekle güncellendi
+
+### Testler
+
+```text
+src/studies/study-flags.service.spec.ts   16 birim testi (türetme kuralları)
+test/studies.e2e-spec.ts                  detail flags/lock/clinicalData + fail-closed
+test/study-locks.e2e-spec.ts              detail lock'u ayrı uçla aynı
+test/information.e2e-spec.ts              not eklenince hasInformation yükseliyor
+```
+
+---
+
+## DISCOVERED-005 — External Lock Model
+
+**Owner:** BACKEND  
+**Priority:** P2  
+**Status:** TODO  
+**Depends On:** BACKEND-015  
+**Keşfedildi:** DISCOVERED-004 sırasında
+
+### Issue
+
+`API_CONTRACT.md` section 28 `flags.externalLockConflict` tanımlıyor,
+`DATA_MODEL.md` section 23-24 `ExternalStudyLock` modelini (source,
+externalUserReference, ACTIVE/RELEASED/CONFLICT) tarif ediyor, `INTEGRATIONS.md`
+section 53-58 external lock event akışını anlatıyor. Model, adapter ve
+`POST /dev-tools/studies/:id/external-lock` uçları (API_CONTRACT 100-101)
+mevcut değil.
+
+`flags.externalLockConflict` bu yüzden sözleşmeye **eklenmedi**: `false`
+dönmek, backend'in bilemediği bir şeyi "çakışma yok" diye iddia etmek olurdu.
+
+### Yapılacaklar
+
+- `ExternalStudyLock` modeli + migration
+- External lock adapter sınırı (INTEGRATIONS section 58)
+- DevTools external lock / unlock uçları
+- `EXTERNAL_LOCK_CONFLICT` iş kuralı (BACKEND.md section 42)
+- `StudyFlags.externalLockConflict` (shared + API_CONTRACT 28.3)
