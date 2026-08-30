@@ -381,7 +381,13 @@ setting none.
 ## Backend Infrastructure Notes
 
 ```text
-Railway project: strong-courtesy / production
+Railway project: PacsBackend / production  (was named strong-courtesy)
+Project ID:      c1b56e16-4bc6-42c3-800a-d96459124439
+Backend service: backend  (c13d2c5b-5dc0-48b2-a0e3-2d0cc4ab6c0b)
+The service is NOT connected to GitHub: it deploys from `railway up` uploads,
+so pushing to origin does not deploy anything on its own.
+Link a fresh worktree with:
+  railway link -p PacsBackend -e production -s backend
 Access from a developer machine goes through TCP proxies, not the
 *.railway.internal hostnames (those resolve only inside Railway).
 
@@ -424,29 +430,52 @@ pnpm typecheck -> PASS
 pnpm build     -> PASS
 backend unit tests 367 PASS
 backend e2e tests  338 PASS
-prisma migrate deploy -> 20260831120000_add_clinical_data applied to Railway
-prisma migrate status -> "Database schema is up to date"
+git push origin agent/backend -> be870d2..eca06e2
+railway up --service backend  -> deployment bf88455a SUCCESS
+live smoke over the public URL -> 18/18 PASS
+
+Live verification after the deploy (real HTTP, deployed build):
+
+  GET  /health                      200, database up, redis up
+  POST /auth/login  doctor          200
+  GET  /auth/me                     200, role DOCTOR, 1 hospital
+  GET  /studies                     200, 21 studies, every row carries flags
+  GET  /studies/:id                 200, clinicalData + lock + flags + sla
+                                    present, pacs correctly absent,
+                                    no hospitalId/patientId leakage
+  GET  /studies/:id/lock            200, byte-identical to the embedded block
+  GET  /studies/:id/information     200
+  GET  /studies/:id/pacs/viewer     200, available=false with
+                                    reason=PACS_VIEWER_NOT_CONFIGURED
+                                    (honest: no Orthanc yet, not faked)
+  GET  /studies/:id/pacs/series     200, 2 series from the test adapter
+  GET  /studies/<unknown uuid>      404 NOT_FOUND
+
+The clinicalData write path was exercised through the real chain
+(DevTools -> MockHl7Adapter -> normalization -> workflow), not asserted from
+a fixture:
+
+  POST /dev-tools/hl7/first  with a clinical block -> stored and returned
+  POST /dev-tools/hl7/second omitting preDiagnosis -> the first message's
+       preDiagnosis SURVIVED, the new patientComplaint was added and
+       additionalData kept its earlier extras
+
+That check created one extra pilot study (accession CLIN-1788128245). It is
+test data in a test hospital; nothing else was touched.
 
 Current Problem:
-The Railway pilot database was seeded with a SEED_DEFAULT_PASSWORD that is not
-in this worktree's .env, and this worktree is not `railway link`ed, so the new
-detail contract could NOT be smoke-tested over live HTTP this session. The
-schema change itself was verified directly against the Railway database
-(clinical_data table present with all 11 columns; 21 existing studies
-untouched). Every endpoint below is covered by the e2e suite over real HTTP.
+None.
 
 Next Action:
-1. Live-verify the new StudyDetail against Railway once the pilot password is
-   available, then redeploy (`railway up --service backend`) so the frontend
-   consumes the completed contract. The running deployment is UNAFFECTED by
-   the migration — it is a new table the old build never reads.
-2. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
+1. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
    dev mode, which the sweeper now makes testable.
-3. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
-   the service. Dictation audio is still lost on every redeploy.
-4. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL and
+2. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
+   the service. Dictation audio is still lost on every redeploy — the deploy
+   above wiped .storage again, as expected.
+3. When the frontend deploys (DEVOPS-005), add its origin to FRONTEND_URL and
    redeploy. This now matters for the websocket too, not only for REST.
-5. Turn DEV_TOOLS_ENABLED off before any real patient data.
+4. Turn DEV_TOOLS_ENABLED off before any real patient data. It is currently ON,
+   which is what makes the HL7 simulation above possible.
 
 Repository housekeeping (pre-existing, not introduced here):
 `pnpm format:check` is red across 38 files, including files this session did
@@ -489,10 +518,23 @@ Still open for the frontend, with no backend answer yet:
 - Dictation audio does not survive a Railway redeploy (DEVOPS-004).
 
 Deployment notes:
-- Redeploy: railway up --service backend
+- Redeploy: railway up --service backend        (the service has no GitHub link)
 - Logs:     railway logs --service backend
 - Variables live on the Railway service; secrets are not in the repository.
 - Dev tools are Manager-only; the HL7 simulation needs a manager token.
+
+Pilot test credentials:
+- The four pilot account passwords live ONLY in the Railway backend service
+  variables: PILOT_DOCTOR_PASSWORD, PILOT_DOCTOR2_PASSWORD,
+  PILOT_REPORTER_PASSWORD, PILOT_OPERATION_PASSWORD, PILOT_MANAGER_PASSWORD.
+  Read them with `railway variables --service backend --kv`. They are not in
+  this repository and must not be committed here or quoted in a task file.
+- doctor@test.local was rotated for the FRONTEND-007 handoff and the new value
+  is in PILOT_DOCTOR_PASSWORD. The rotation touched exactly one row, matched by
+  unique email, using the same @node-rs/argon2 `hash` call the seed uses.
+  doctor2@test.local was re-verified as UNCHANGED after the rotation.
+- Do NOT use `SEED_RESET_PASSWORDS`: it rewrites every seeded account, which is
+  the opposite of a single-account rotation.
 ```
 
 ---
@@ -571,9 +613,16 @@ e577de6  feat(sla): derive state, remaining and overdue from the frozen deadline
 f3ddc35  feat(studies): complete the study detail contract for the frontend
 ```
 
-Only `f3ddc35` is new since the last handoff; the five before it are listed
-because a frontend branch that has not merged `agent/backend` recently needs
-them for `@radiology/shared` to compile.
+All six are on `origin/agent/backend`. Only `f3ddc35` is new since the last
+handoff; the five before it are listed because a frontend branch that has not
+merged `agent/backend` recently needs them for `@radiology/shared` to compile.
+
+The commit that has to be in the frontend's tree for FRONTEND-007 and
+FRONTEND-009 to compile against the real contract is `f3ddc35`. Merging
+`origin/agent/backend` brings it and everything above.
+
+All of these endpoints are verified against the DEPLOYED build, not only
+against tests — see the Backend Resume Pointer.
 
 Endpoints FRONTEND-007 can call today (base `/api/v1`):
 
