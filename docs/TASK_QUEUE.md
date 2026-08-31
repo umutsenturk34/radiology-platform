@@ -3861,3 +3861,26 @@ state'i değiştiremez; completion butonu güvenli biçimde disabled kalır.
 - Başka kullanıcı lock sahibiyse 423 ve owner görünürlüğü korunur.
 - Frontend gerçek endpoint ile yalnız yetkili doktorun lock recovery akışını
   doğrulayabilir.
+
+---
+
+## DISCOVERED-006 — Doctor Queue Pool/Status Filter Conflict
+
+**Owner:** FRONTEND
+**Priority:** P1
+**Status:** TODO
+**Depends On:** FRONTEND-005
+**Keşfedildi:** FRONTEND-011 acceptance doğrulaması sırasında
+
+### Issue
+
+Doctor queue istemcisi canonical `pool=UNREAD` parametresini sabit gönderirken
+ekrandaki durum filtresi kullanıcıya diğer state'leri seçtiriyor. Örneğin
+`status=WAITING_TRANSCRIPTION` ile aynı anda `pool=UNREAD` gönderildiğinde
+backend sorguyu reddediyor.
+
+### Acceptance
+
+- Doctor queue yalnız UNREAD pool ile uyumlu filtreleri gösterir veya pool ve
+  status seçimini canonical, çelişmeyen sorgulara dönüştürür.
+- Başka queue'lara ait state frontend'de sahte listelenmez.

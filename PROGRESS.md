@@ -419,6 +419,10 @@ Next.js production build, kök ESLint yapılandırmasında Next eklentisi algıl
 dair bilgilendirici bir uyarı yayımlıyor; lint/typecheck/build yine de başarılı.
 `* 2.*` adlı kullanıcı dosyaları TypeScript'in `.next` generated tipleriyle çakışıyordu;
 silinmeden `tsconfig.json` exclude listesine eklendi.
+
+Doctor queue'da `pool=UNREAD` ile kullanıcı tarafından seçilen diğer status
+değerleri çelişebiliyor ve backend sorguyu reddediyor. `DISCOVERED-006` olarak
+ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 ```
 
 ## Frontend Resume Pointer
