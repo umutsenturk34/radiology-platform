@@ -28,6 +28,13 @@ export interface StartReadingResult {
   readingStartedAt: string;
 }
 
+export interface CompleteReadingResult {
+  studyId: string;
+  status: StudyStatus;
+  readingCompletedAt: string;
+  lockReleased: boolean;
+}
+
 export function listDoctorStudies(query: DoctorStudiesQuery) {
   const params = new URLSearchParams({
     pool: StudyPool.UNREAD,
@@ -82,4 +89,8 @@ export function listStudyInformation(studyId: string) {
 
 export function startReading(studyId: string) {
   return getApiClient().post<StartReadingResult>(`/studies/${studyId}/start-reading`, undefined, { retryAfterRefresh: false });
+}
+
+export function completeReading(studyId: string, dictationId: string) {
+  return getApiClient().post<CompleteReadingResult>(`/studies/${studyId}/complete-reading`, { dictationId });
 }
