@@ -362,6 +362,11 @@ FRONTEND-009 DONE — canlı browser acceptance PASS: mikrofon izni, kayıt
 başlat/durdur, süre sayacı, dictation create, multipart upload, success UI ve
 yeni kaydın gerçek listede görünmesi doğrulandı. DEVOPS-004 nedeniyle redeploy
 sonrası audio persistence garanti değildir; bu ayrı `BLOCKED_EXTERNAL` kalır.
+
+FRONTEND-011 IN_PROGRESS — canlı acceptance'ta `READING` + `COMPLETED` dikte
+olmasına rağmen lock yokken completion'ın backend tarafından doğru biçimde
+reddedildiği görüldü. Frontend artık yalnız mevcut doktora ait gerçek lock ile
+istek gönderir; canlı başarı kabulü henüz yapılmadı.
 ```
 
 ## Current Frontend Task
@@ -396,6 +401,10 @@ Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 DEVOPS-004 açık: object storage kalıcılığı çözülmedi. FRONTEND-009 kayıt ve
 upload akışı bu nedenle hazırlanabilir/doğrulanabilir; ancak redeploy sonrası
 audio persistence acceptance'ı DONE sayılmayacak.
+
+DISCOVERED-005 açık: READING durumunda kaybolan lock için canonical güvenli
+reacquire endpointi yok. `start-reading` yalnız UNREAD içindir; heartbeat için
+gerekli `sessionId` shared/start-reading cevabında bulunmaz.
 ```
 
 ## Frontend Known Issues
@@ -411,7 +420,9 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 
 ```text
 FRONTEND-011: sadece tamamlanmış backend diktesi varsa gerçek complete-reading
-endpointini çağır; backend başarısı olmadan queue/state değiştirme.
+endpointini çağır; ayrıca StudyDetail içindeki lock current doctor'a ait
+olmalıdır. Yeni UNREAD test Study ile start-reading → own lock → COMPLETED
+dictation → complete-reading → WAITING_TRANSCRIPTION canlı kabulünü çalıştır.
 ```
 
 ## Frontend Observation
@@ -420,6 +431,10 @@ endpointini çağır; backend başarısı olmadan queue/state değiştirme.
 FRONTEND-007 canlı acceptance sırasında Study READING iken ekranda
 "Çalışma kilidi: Kilit yok" göründü. FRONTEND-006 iki doktorla lock/423
 acceptance'ı daha önce PASS olduğu için bu FRONTEND-007 blocker değildir.
+
+FRONTEND-011 canlı acceptance'ta aynı lock kaybı completion için gerçek bir
+P0 güvenlik/UX etkisi yarattı. Frontend fail-closed davranır; backend contract
+handoff gelene kadar READING lock recovery uydurulmayacaktır.
 ```
 
 ---

@@ -1719,7 +1719,18 @@ audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
 ### Acceptance
 
 - upload tamamlanmadan bitirilemez
+- yalnız `READING` + gerçek `COMPLETED` dikte + mevcut doktora ait geçerli lock
+  birlikteyken bitirilebilir
 - success sonrası queue'dan çıkar
+
+### Implementation Note (2026-08-31)
+
+- `StudyDetail.lock` gerçek backend verisiyle buton koşullandırılır; lock yoksa
+  veya başka kullanıcıya aitse frontend completion isteği göndermez.
+- `complete-reading` hata UX'i `error.code` ile `LOCK_NOT_OWNED`,
+  `STUDY_LOCKED`, `DICTATION_REQUIRED`, `INVALID_STATE_TRANSITION`, atama ve
+  external lock hatalarını ayırt eder.
+- Canlı acceptance henüz geçmediği için görev `IN_PROGRESS` kalır.
 
 ---
 
@@ -3804,3 +3815,33 @@ kaydının `metadata` alanında saklanıyor — veri kaybolmuyor, ancak
 ve `flags` alanları henüz modellenmediği için `StudyListItem` / `StudyDetail`
 sözleşmesinde yok. Bunlar ilgili görevler tamamlandıkça eklenmelidir; frontend
 sözleşmesi o noktada güncellenecektir.
+
+---
+
+## DISCOVERED-005 — READING Lock Recovery Contract
+
+**Owner:** BACKEND
+**Priority:** P0
+**Status:** TODO
+**Depends On:** BACKEND-011
+**Keşfedildi:** FRONTEND-011 canlı acceptance sırasında
+
+### Issue
+
+Bir Study `READING` durumundayken lock kaybolursa mevcut canonical contract'ta
+güvenli yeniden lock alma action'ı yoktur. `start-reading` yalnız `UNREAD`
+durumunda geçerlidir. `lock/heartbeat` ise `sessionId` ister; bu değer
+`start-reading` veya shared `AcquiredLockInfo` cevabında dönmez.
+
+### Impact
+
+Doktor completed dikteyi tamamlayamaz. Frontend lock uyduramaz veya workflow
+state'i değiştiremez; completion butonu güvenli biçimde disabled kalır.
+
+### Acceptance
+
+- READING lock recovery için yetkili, denetlenebilir semantic endpoint ve
+  canonical shared/API contract sağlanır.
+- Başka kullanıcı lock sahibiyse 423 ve owner görünürlüğü korunur.
+- Frontend gerçek endpoint ile yalnız yetkili doktorun lock recovery akışını
+  doğrulayabilir.
