@@ -12,7 +12,9 @@ const navigationByRole: Record<UserRole, Array<{ href: string; label: string }>>
   DOCTOR: [
     { href: "/doctor/studies", label: "Okuma havuzu" },
   ],
-  REPORTER: [],
+  REPORTER: [
+    { href: "/reporter/studies", label: "Yazım kuyruğu" },
+  ],
   OPERATION: [],
   MANAGER: [],
 };
