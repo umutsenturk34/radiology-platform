@@ -54,6 +54,17 @@ export default function DoctorStudyWorkspacePage() {
       void queryClient.invalidateQueries({ queryKey: ["studies", "doctor"] });
     },
   });
+  const completion = useMutation({
+    mutationFn: () => {
+      const completedDictation = dictations.data?.find((dictation) => dictation.status === "COMPLETED");
+      if (!completedDictation) throw new Error("Completed dictation is required.");
+      return completeStudyReading(studyId, completedDictation.id);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["studies", "doctor"] });
+      router.replace("/doctor/studies");
+    },
+  });
 
   if (detail.isLoading) return <main className="p-6">Tetkik yükleniyor…</main>;
   if (detail.isError && detail.error instanceof ApiClientError && detail.error.status === 403) return <main className="p-6"><ForbiddenState /></main>;
@@ -65,13 +76,6 @@ export default function DoctorStudyWorkspacePage() {
     : undefined;
   const lockError = Boolean(lockDetails);
   const completedDictation = dictations.data?.find((dictation) => dictation.status === "COMPLETED");
-  const completion = useMutation({
-    mutationFn: () => completedDictation ? completeStudyReading(studyId, completedDictation.id) : Promise.reject(new Error("Completed dictation is required.")),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["studies", "doctor"] });
-      router.replace("/doctor/studies");
-    },
-  });
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 text-slate-950 lg:p-6">
