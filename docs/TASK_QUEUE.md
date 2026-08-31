@@ -1607,7 +1607,7 @@ Testler: 11 playback-token birim testi + 24 e2e.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-007, BACKEND-023
 
 ### Özellikler
@@ -1623,6 +1623,15 @@ Testler: 11 playback-token birim testi + 24 e2e.
 ### Acceptance
 
 gerçek mikrofon kaydı backend'e gidiyor.
+
+### Completed
+
+- Canlı browser acceptance PASS: mikrofon izni, kayıt başlat/durdur, süre sayacı,
+  dictation create, multipart upload, başarı UI ve yeni kaydın gerçek listede
+  görünmesi doğrulandı.
+- DEVOPS-004 `BLOCKED_EXTERNAL` kalır: local object storage kullanan deploy
+  sonrası audio persistence bu task'ın recorder/upload acceptance kriterinden
+  ayrıdır ve garanti edilmez.
 
 ---
 
@@ -1704,7 +1713,7 @@ audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-009, BACKEND-024
 
 ### Acceptance

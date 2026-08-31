@@ -327,7 +327,7 @@ Local run notes:
 ## Current Frontend Status
 
 ```text
-IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-009.
+IN PROGRESS — FRONTEND-002, FRONTEND-003 ve FRONTEND-011.
 
 Doctor login ve temel GET /studies akışı canlı Railway backend ile tarayıcıda
 doğrulandı. FRONTEND-005 operasyonel havuz görünümü; gerçek kategori, hastane,
@@ -357,6 +357,11 @@ SLA, assignment/workflow, gerçek dictation listesi, clinicalData, Information,
 PACS viewer/series ve operational flags doğrulandı. clinical bilgi `null` ve
 PACS viewer `available=false` gerçek durum olarak sunulur; sahte business verisi
 üretilmez.
+
+FRONTEND-009 DONE — canlı browser acceptance PASS: mikrofon izni, kayıt
+başlat/durdur, süre sayacı, dictation create, multipart upload, success UI ve
+yeni kaydın gerçek listede görünmesi doğrulandı. DEVOPS-004 nedeniyle redeploy
+sonrası audio persistence garanti değildir; bu ayrı `BLOCKED_EXTERNAL` kalır.
 ```
 
 ## Current Frontend Task
@@ -364,12 +369,13 @@ PACS viewer `available=false` gerçek durum olarak sunulur; sahte business veris
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-009 — Browser Audio Recorder
+FRONTEND-011 — Complete Reading Action
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-009: gerçek browser mikrofon kaydını backend upload akışına bağla.
+FRONTEND-011: tamamlanmış gerçek dikte ile backend complete-reading action'ını
+çağır; başarıda doktor kuyruğunu yenile.
 
 ## Recently Completed Frontend Tasks
 
@@ -379,6 +385,7 @@ FRONTEND-004 — Role Based App Shell (commit: 898e545; canlı acceptance PASS)
 FRONTEND-005 — Study List Foundation (commit: 5106a97; canlı acceptance PASS)
 FRONTEND-006 — Lock UI (commit: bc39d06; canlı acceptance PASS)
 FRONTEND-007 — Doctor Study Workspace (commit: 756cd16; canlı acceptance PASS)
+FRONTEND-009 — Browser Audio Recorder (commit: 155c475; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -403,9 +410,8 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-009: MediaRecorder permission/start/stop/timer/upload/error/success
-akışını canonical `DICTATION_UPLOAD_FIELD` ile uygula. Object storage
-persistence kabulünü DEVOPS-004 çözülmeden DONE sayma; sonra FRONTEND-011.
+FRONTEND-011: sadece tamamlanmış backend diktesi varsa gerçek complete-reading
+endpointini çağır; backend başarısı olmadan queue/state değiştirme.
 ```
 
 ## Frontend Observation
