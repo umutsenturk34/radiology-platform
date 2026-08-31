@@ -1879,6 +1879,15 @@ aynı sonuçlar gerçek servislere karşı alındı.
 
 WAITING_TRANSCRIPTION Study'leri gösteriyor.
 
+### Implementation Note (2026-08-31)
+
+- Reporter queue canonical `GET /studies?pool=WAITING_TRANSCRIPTION` sorgusunu
+  kullanır; doktor havuzunun `UNREAD` pool'u veya frontend status üretimi
+  paylaşılmaz.
+- Reporter navigation eklendi. Reporter detail route'u FRONTEND-013 kapsamı
+  olduğundan kuyrukta çalışmayan bir action/link gösterilmez.
+- Canlı reporter acceptance bekleniyor; görev `IN_PROGRESS` kalır.
+
 ---
 
 ## FRONTEND-013 — Reporter Workspace

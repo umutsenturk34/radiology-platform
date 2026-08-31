@@ -369,7 +369,8 @@ oldu; Study `WAITING_TRANSCRIPTION` durumuna geçti, doktor havuzundan çıktı 
 backend lock'u bıraktı.
 
 FRONTEND-012 IN_PROGRESS — reporter queue yalnız gerçek
-`WAITING_TRANSCRIPTION` pool verisini kullanacak.
+`WAITING_TRANSCRIPTION` pool verisini kullanacak. Uygulama commit'i
+`a1fbda1`; canlı reporter acceptance bekleniyor.
 ```
 
 ## Current Frontend Task
