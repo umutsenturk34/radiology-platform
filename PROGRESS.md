@@ -363,10 +363,13 @@ başlat/durdur, süre sayacı, dictation create, multipart upload, success UI ve
 yeni kaydın gerçek listede görünmesi doğrulandı. DEVOPS-004 nedeniyle redeploy
 sonrası audio persistence garanti değildir; bu ayrı `BLOCKED_EXTERNAL` kalır.
 
-FRONTEND-011 IN_PROGRESS — canlı acceptance'ta `READING` + `COMPLETED` dikte
-olmasına rağmen lock yokken completion'ın backend tarafından doğru biçimde
-reddedildiği görüldü. Frontend artık yalnız mevcut doktora ait gerçek lock ile
-istek gönderir; canlı başarı kabulü henüz yapılmadı.
+FRONTEND-011 DONE — canlı browser acceptance PASS (`FE011-TEST-1788206210`):
+gerçek completed dictation + current doctor lock ile complete-reading başarılı
+oldu; Study `WAITING_TRANSCRIPTION` durumuna geçti, doktor havuzundan çıktı ve
+backend lock'u bıraktı.
+
+FRONTEND-012 IN_PROGRESS — reporter queue yalnız gerçek
+`WAITING_TRANSCRIPTION` pool verisini kullanacak.
 ```
 
 ## Current Frontend Task
@@ -374,13 +377,13 @@ istek gönderir; canlı başarı kabulü henüz yapılmadı.
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-011 — Complete Reading Action
+FRONTEND-012 — Reporter Queue
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-011: tamamlanmış gerçek dikte ile backend complete-reading action'ını
-çağır; başarıda doktor kuyruğunu yenile.
+FRONTEND-012: `GET /studies?pool=WAITING_TRANSCRIPTION` ile gerçek reporter
+kuyruğunu oluştur; doktor havuzunun sabit `UNREAD` pool parametresini paylaşma.
 
 ## Recently Completed Frontend Tasks
 
@@ -391,6 +394,7 @@ FRONTEND-005 — Study List Foundation (commit: 5106a97; canlı acceptance PASS)
 FRONTEND-006 — Lock UI (commit: bc39d06; canlı acceptance PASS)
 FRONTEND-007 — Doctor Study Workspace (commit: 756cd16; canlı acceptance PASS)
 FRONTEND-009 — Browser Audio Recorder (commit: 155c475; canlı acceptance PASS)
+FRONTEND-011 — Complete Reading Action (commit: 78dff46, 061c6c1; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -419,10 +423,9 @@ silinmeden `tsconfig.json` exclude listesine eklendi.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-011: sadece tamamlanmış backend diktesi varsa gerçek complete-reading
-endpointini çağır; ayrıca StudyDetail içindeki lock current doctor'a ait
-olmalıdır. Yeni UNREAD test Study ile start-reading → own lock → COMPLETED
-dictation → complete-reading → WAITING_TRANSCRIPTION canlı kabulünü çalıştır.
+FRONTEND-012: reporter role ile gerçek `WAITING_TRANSCRIPTION` Study'lerini
+listele. `pool=WAITING_TRANSCRIPTION` canonical endpointini kullan; frontend
+durum filtresiyle doktor `UNREAD` pool'unu çaprazlama.
 ```
 
 ## Frontend Observation

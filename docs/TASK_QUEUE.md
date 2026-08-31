@@ -1713,7 +1713,7 @@ audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-009, BACKEND-024
 
 ### Acceptance
@@ -1730,7 +1730,14 @@ audit zinciri                -> 14 kayıt, DICTATION_STARTED/UPLOADED dahil
 - `complete-reading` hata UX'i `error.code` ile `LOCK_NOT_OWNED`,
   `STUDY_LOCKED`, `DICTATION_REQUIRED`, `INVALID_STATE_TRANSITION`, atama ve
   external lock hatalarını ayırt eder.
-- Canlı acceptance henüz geçmediği için görev `IN_PROGRESS` kalır.
+- Canlı acceptance tamamlanana kadar görev `IN_PROGRESS` tutuldu.
+
+### Completed
+
+- Canlı browser acceptance PASS (`FE011-TEST-1788206210`): gerçek completed
+  dictation ve current doctor lock'u ile `POST /studies/:id/complete-reading`
+  başarılı oldu; Study `WAITING_TRANSCRIPTION` durumuna geçti, doktor okuma
+  havuzundan çıktı ve backend completion transaction'ı lock'u bıraktı.
 
 ---
 
@@ -1865,7 +1872,7 @@ aynı sonuçlar gerçek servislere karşı alındı.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-005, BACKEND-026
 
 ### Acceptance
