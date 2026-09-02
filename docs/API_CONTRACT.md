@@ -2215,7 +2215,8 @@ Backend yeni ReportVersion açar.
 GET /api/v1/studies/{studyId}/report/versions
 ```
 
-Response:
+Response — `ReportVersionDto[]` (`@radiology/shared`), `GET /report` içindeki
+`currentVersion` ile **birebir aynı** şekil:
 
 ```json
 {
@@ -2223,17 +2224,55 @@ Response:
     {
       "id": "...",
       "versionNumber": 1,
-      "status": "FINAL",
-      "source": "REPORTER",
       "content": "...",
+      "source": "REPORTER",
+      "status": "SUPERSEDED",
+      "createdBy": { "id": "...", "displayName": "Test Reporter" },
       "createdAt": "...",
-      "finalizedAt": "..."
+      "completedAt": "...",
+      "finalizedAt": null
     }
   ]
 }
 ```
 
-Yetkisiz kullanıcı version history görmemelidir.
+## 81.1 Sıralama
+
+`versionNumber` **artan**. Numara rapor içinde unique olduğundan
+(`DATA_MODEL.md` section 38) sıra tamdır: iki çağrı arasında değişemez.
+`createdAt` sıralaması aynı milisaniyedeki iki satırda belirsiz kalırdı, bu
+yüzden kullanılmaz.
+
+## 81.2 Yetki
+
+Yetkisiz kullanıcı version history görmemelidir. Sınır **rol değil, hastane
+scope'udur**: `AUTH_ROLES_PERMISSIONS.md` section 91 dört rolün de kendi
+scope'undaki bir Study'nin rapor geçmişini görebileceğini söyler.
+
+```text
+DOCTOR      onayladığı raporun geçmişi
+REPORTER    kendi taslak geçmişi
+OPERATION   revision tracking
+MANAGER     yetkili olduğu hastaneler
+```
+
+Scope kontrolü tek bir version okunmadan önce yapılır.
+
+## 81.3 Hatalar
+
+```text
+404 NOT_FOUND                Study yok
+404 NOT_FOUND                Study var ama henüz report yok
+                             (GET /report ile aynı cevap)
+403 HOSPITAL_ACCESS_DENIED   Study başka hastanede; gövdede `data` olmaz
+401 UNAUTHORIZED             token yok
+422 VALIDATION_ERROR         studyId UUID değil
+```
+
+Report var ama hiç version yoksa bu bir hata değildir: `data: []` döner.
+
+Frontend bu uçtan gelen veri dışında version history **üretmemelidir**; uç 404
+veriyorsa gösterilecek geçmiş yok demektir.
 
 ---
 

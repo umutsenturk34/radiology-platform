@@ -4350,6 +4350,151 @@ görünmez.
 
 ---
 
+## DISCOVERED-007 — Report Version History Endpoint
+
+**Owner:** BACKEND  
+**Priority:** P0  
+**Status:** DONE  
+**Depends On:** BACKEND-025  
+**Keşfedildi:** FRONTEND-013 canlı acceptance sırasında
+
+### Issue
+
+`API_CONTRACT.md` section 81 `GET /studies/{studyId}/report/versions` ucunu
+canonical olarak tanımlıyor, ancak `ReportsController` bu route'u hiç
+tanımlamamıştı. Canlı Railway backend `404 Cannot GET .../report/versions`
+dönüyordu. Frontend sahte history üretmediği için FRONTEND-013 durdu.
+
+### Completed
+
+- `ReportsService.listVersions()` + `GET :studyId/report/versions`
+- Dönen tip mevcut `ReportVersionDto` — yeni bir şekil uydurulmadı
+- `toReportVersionDto()` ayıklandı: `GET /report` içindeki `currentVersion` ile
+  history **aynı** mapper'dan geçiyor, ikisi ayrışamaz
+- Sıralama `versionNumber` artan. Numara rapor içinde unique
+  (`@@unique([reportId, versionNumber])`), yani sıra tam ve tekrarlanabilir;
+  `createdAt` aynı milisaniyede iki satırda belirsiz kalırdı
+- Yetki: `@Roles` **yok**. `AUTH_ROLES_PERMISSIONS.md` section 91 dört rolün de
+  görebileceğini söylüyor; sınır hastane scope'u ve servis içinde, tek bir
+  version okunmadan önce uygulanıyor
+- Hatalar: Study yok → `404 NOT_FOUND`; report yok → `404 NOT_FOUND`
+  (`GET /report` ile aynı cevap); başka hastane → `403 HOSPITAL_ACCESS_DENIED`;
+  bozuk UUID → `422 VALIDATION_ERROR`
+- Report var ama version yoksa hata değil, `data: []`
+- `API_CONTRACT.md` section 81 sıralama/yetki/hata alt bölümleriyle netleştirildi
+
+### Testler
+
+```text
+src/reports/reports.service.spec.ts   10 birim testi (sıralama, mapping, scope, 404)
+test/reports.e2e-spec.ts              9 e2e testi (history, supersede, 4 rol, hatalar)
+```
+
+---
+
+## DISCOVERED-008 — Reporter Cannot Resume an Interrupted Transcription
+
+**Owner:** BACKEND  
+**Priority:** P1  
+**Status:** TODO — sözleşme kararı bekliyor (BLOCKED_SPEC)  
+**Depends On:** BACKEND-026  
+**Keşfedildi:** FRONTEND-013 canlı acceptance sırasında
+
+### Gözlenen durum (canlı, kanıtlı)
+
+Study `b32b239c-…` (FE011-TEST-1788206210), `transcriptionStartedAt`
+`2026-09-02T20:27:17Z`. 30 dakika sonra:
+
+```text
+GET  /studies/:id/lock            200  locked=false
+GET  /studies/:id/report          200  DRAFT v1
+PUT  /studies/:id/report/draft    423  LOCK_NOT_OWNED
+POST /studies/:id/start-transcription  409  INVALID_STATE_TRANSITION
+POST /studies/:id/lock/heartbeat  423  LOCK_NOT_OWNED
+```
+
+Veritabanında reporter assignment hâlâ **aktif** (`releasedAt: null`),
+`assignedReporterId` duruyor, report DRAFT v1 duruyor.
+
+### Kök neden — bug değil, eksik yol
+
+Lock **oluşuyor ve korunuyor**: `startTranscription` lock'ı transaction'dan
+önce alıyor ve başarı yolunda bırakmıyor; yalnız hata yolunda geri veriyor.
+Sweeper de canlı lock'a dokunmuyor — süresi uzatılmış bir lock'ı yeniden
+skorluyor, silmiyor.
+
+Lock ephemeral: `LOCK_TTL_SECONDS=60`, `LOCK_HEARTBEAT_SECONDS=20`
+(`WORKFLOW_STATE_MACHINE.md` section 32, Railway'de de aynı). Heartbeat
+gelmezse 60 saniyede TTL doluyor — `section 34`'ün tarif ettiği "tarayıcı
+kapandı" davranışının ta kendisi.
+
+Draft save'in reddedilmesi **doğru**: yazma hakkı lock sahipliğine bağlı
+(CLAUDE.md section 17-19). Lock yoksa "sahibiyim" varsayılamaz, fail closed.
+Aksi hâlde aynı taslağa iki reporter yazabilirdi.
+
+Asıl boşluk şu: assignment kalıcı (`section 74` invariant 2), lock ephemeral,
+ama **assignment sahibinin lock'ı yeniden alması için tanımlı bir yol yok**.
+`start-transcription` yalnız `WAITING_TRANSCRIPTION` kabul ediyor; study
+`TRANSCRIBING` olduğu için giriş kapısı kapalı. Reporter kalıcı olarak
+kilitleniyor.
+
+### Neden uydurulmadı
+
+`WORKFLOW_STATE_MACHINE.md` section 34 yalnızca "backend sonraki erişimde stale
+assignment olup olmadığını **kontrol edebilir**" diyor — izin veren bir cümle,
+tanımlı bir kural değil. Resume için aktör, state ve audit kuralı hiçbir
+dokümanda tanımlı değil, bu yüzden davranış **uydurulmadı**.
+
+### Önerilen sözleşme (onay bekliyor)
+
+```http
+POST /api/v1/studies/{studyId}/resume-transcription
+```
+
+```text
+Actor      REPORTER
+Koşul      study.status === TRANSCRIBING
+           study.assignedReporterId === caller.id
+           aktif REPORTER assignment (releasedAt: null)
+           lock ya boş ya zaten caller'ın
+Sonuç      lock aynı atomic SET NX ile alınır
+           status DEĞİŞMEZ, yeni version yaratılmaz
+           audit: TRANSCRIPTION_RESUMED
+Cevap      start-transcription ile aynı gövde
+Hatalar    423 STUDY_LOCKED    lock başkasında
+           403 STUDY_NOT_ASSIGNED_TO_USER  başka reporter'ın işi
+           409 INVALID_STATE_TRANSITION    study TRANSCRIBING değil
+```
+
+Bu öneri hiçbir mevcut garantiyi zayıflatmaz: ikinci reporter yine
+reddedilir (CLAUDE.md section 61), lock yine Redis'te ve atomic alınır,
+force-release yine yalnız Operation/Manager'da kalır.
+
+### Alternatif (kod değişikliği gerektirmez)
+
+FRONTEND-013 asıl açığı zaten heartbeat: `start-transcription` cevabı
+`lock.heartbeatIntervalSeconds` döndürüyor ve client bu aralıkta
+`POST /studies/:id/lock/heartbeat` göndermeli. Heartbeat gönderen bir istemci
+bu duruma hiç düşmez. Resume ucu, heartbeat'i kesilen istemci için bir
+**kurtarma** yoludur, heartbeat'in yerine geçmez.
+
+### Yapılacaklar
+
+- Sözleşme kararı: resume ucu onaylansın mı, aktörü ve audit event'i ne olsun
+- Onaylanırsa `API_CONTRACT.md` + `WORKFLOW_STATE_MACHINE.md` güncellenir,
+  sonra implementasyon ve e2e (aynı reporter resume eder / başka reporter 403 /
+  lock başkasındaysa 423)
+
+### Şu anki davranış test altında
+
+`test/reports.e2e-spec.ts` → "reporter lock lifetime": lock'ın
+start-transcription'da gerçekten alındığı, TTL bitince draft save'in 423 ile
+**güvenli** reddedildiği, study'nin TRANSCRIBING + assignment ile kaldığı ve bu
+çıkmazın var olduğu testle sabitlendi. Yani davranış artık kaza değil, bilinen
+ve kayıtlı bir sınır.
+
+---
+
 ## DISCOVERED-005 — External Lock Model
 
 **Owner:** BACKEND  

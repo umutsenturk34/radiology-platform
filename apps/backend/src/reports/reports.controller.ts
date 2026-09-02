@@ -29,7 +29,7 @@ const studyIdPipe = new ParseUUIDPipe({
 });
 
 /**
- * Reporter workflow endpoints (docs/API_CONTRACT.md sections 50-56).
+ * Reporter workflow endpoints (docs/API_CONTRACT.md sections 50-56 and 81).
  *
  * Reading the report is open to every role with hospital access; writing is
  * REPORTER plus lock ownership, enforced in the service.
@@ -57,6 +57,19 @@ export class ReportsController {
     @Param('studyId', studyIdPipe) studyId: string,
   ) {
     return this.reports.getReport(user, studyId);
+  }
+
+  /**
+   * No `@Roles`: every role may read the history of a study in their hospital
+   * scope (docs/AUTH_ROLES_PERMISSIONS.md section 91). Scope is the limit, and
+   * the service enforces it.
+   */
+  @Get(':studyId/report/versions')
+  async getReportVersions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+  ) {
+    return this.reports.listVersions(user, studyId);
   }
 
   @Roles(UserRole.REPORTER)

@@ -6,6 +6,7 @@ import {
   StudyStatus,
   UserRole,
   type ReportDto,
+  type ReportVersionDto,
 } from '@radiology/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -166,6 +167,43 @@ export class ReportsService {
     }
 
     return toReportDto(report);
+  }
+
+  /**
+   * `GET /studies/:id/report/versions` (API_CONTRACT section 81).
+   *
+   * Every role may read the history of a study inside their hospital scope
+   * (docs/AUTH_ROLES_PERMISSIONS.md section 91): the doctor to see what they
+   * are approving, the reporter to see their own earlier drafts, Operation for
+   * revision tracking and Manager across the hospitals they are authorized
+   * for. Scope is what limits this, not the role — and it is enforced below
+   * before a single version is read.
+   *
+   * Ordered by `versionNumber` ascending: it is unique per report
+   * (DATA_MODEL.md section 38), so the order is total and cannot vary between
+   * two calls the way a timestamp sort can when two rows share a millisecond.
+   */
+  async listVersions(user: AuthenticatedUser, studyId: string): Promise<ReportVersionDto[]> {
+    await this.loadStudyInScope(user, studyId);
+
+    const report = await this.prisma.report.findUnique({
+      where: { studyId },
+      select: { id: true },
+    });
+
+    if (!report) {
+      // Same answer `GET /report` gives for a study nobody has transcribed yet,
+      // so the client does not have to tell two "nothing here" shapes apart.
+      throw new NotFoundAppException('No report exists for this study yet.');
+    }
+
+    const versions = await this.prisma.reportVersion.findMany({
+      where: { reportId: report.id },
+      include: { author: AUTHOR_SELECT },
+      orderBy: { versionNumber: 'asc' },
+    });
+
+    return versions.map(toReportVersionDto);
   }
 
   /**
@@ -437,9 +475,7 @@ interface ReportRow {
   studyId: string;
   status: string;
   finalizedAt: Date | null;
-  currentVersion:
-    | (VersionRow & { author: { id: string; firstName: string; lastName: string } })
-    | null;
+  currentVersion: AuthoredVersionRow | null;
 }
 
 interface VersionRow {
@@ -453,28 +489,38 @@ interface VersionRow {
   finalizedAt: Date | null;
 }
 
+type AuthoredVersionRow = VersionRow & {
+  author: { id: string; firstName: string; lastName: string };
+};
+
+/**
+ * One version -> its API shape. Shared by `GET /report` and
+ * `GET /report/versions`, so the current version cannot be described one way
+ * in the report and another way in the history.
+ */
+export function toReportVersionDto(version: AuthoredVersionRow): ReportVersionDto {
+  return {
+    id: version.id,
+    versionNumber: version.versionNumber,
+    content: version.content,
+    source: version.source as ReportSource,
+    status: version.status as ReportStatus,
+    createdBy: {
+      id: version.author.id,
+      displayName: `${version.author.firstName} ${version.author.lastName}`.trim(),
+    },
+    createdAt: version.createdAt.toISOString(),
+    completedAt: version.completedAt?.toISOString() ?? null,
+    finalizedAt: version.finalizedAt?.toISOString() ?? null,
+  };
+}
+
 export function toReportDto(report: ReportRow): ReportDto {
   return {
     id: report.id,
     studyId: report.studyId,
     status: report.status as ReportStatus,
     finalizedAt: report.finalizedAt?.toISOString() ?? null,
-    currentVersion: report.currentVersion
-      ? {
-          id: report.currentVersion.id,
-          versionNumber: report.currentVersion.versionNumber,
-          content: report.currentVersion.content,
-          source: report.currentVersion.source as ReportSource,
-          status: report.currentVersion.status as ReportStatus,
-          createdBy: {
-            id: report.currentVersion.author.id,
-            displayName:
-              `${report.currentVersion.author.firstName} ${report.currentVersion.author.lastName}`.trim(),
-          },
-          createdAt: report.currentVersion.createdAt.toISOString(),
-          completedAt: report.currentVersion.completedAt?.toISOString() ?? null,
-          finalizedAt: report.currentVersion.finalizedAt?.toISOString() ?? null,
-        }
-      : null,
+    currentVersion: report.currentVersion ? toReportVersionDto(report.currentVersion) : null,
   };
 }

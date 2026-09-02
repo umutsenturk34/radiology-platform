@@ -387,6 +387,26 @@ export function createPrismaStub(
     };
   };
 
+  /**
+   * Resolves the assignment relations from the ids the workflow writes.
+   *
+   * Real Prisma populates `assignedDoctor` / `assignedReporter` from the
+   * foreign keys on every include; the fixtures only carry the ids once a
+   * transition sets them, so without this a study that IS assigned would read
+   * back as unassigned and hide exactly the invariant the tests check
+   * (WORKFLOW_STATE_MACHINE section 74).
+   */
+  const withAssignees = (row: Record<string, unknown>) => {
+    const resolve = (userId: unknown) =>
+      typeof userId === 'string' ? (users.find((user) => user.id === userId) ?? null) : null;
+
+    return {
+      ...row,
+      assignedDoctor: resolve(row.assignedDoctorId) ?? row.assignedDoctor ?? null,
+      assignedReporter: resolve(row.assignedReporterId) ?? row.assignedReporter ?? null,
+    };
+  };
+
   const withDoctor = (row: Record<string, unknown>) => ({
     ...row,
     doctor: users.find((user) => user.id === row.doctorId) ?? {
@@ -540,6 +560,20 @@ export function createPrismaStub(
           });
         }
         return Promise.resolve(matched[0] ?? null);
+      },
+      findMany: ({ where, include, orderBy }: { where: Record<string, unknown>; include?: unknown; orderBy?: Record<string, 'asc' | 'desc'> }) => { // prettier-ignore
+        let matched = reportVersions.filter((row) =>
+          Object.entries(where).every(([key, value]) => row[key] === value),
+        );
+        if (orderBy) {
+          const [field, direction] = Object.entries(orderBy)[0];
+          matched = [...matched].sort((a, b) => {
+            const left = Number(a[field] ?? 0);
+            const right = Number(b[field] ?? 0);
+            return direction === 'desc' ? right - left : left - right;
+          });
+        }
+        return Promise.resolve(include ? matched.map((row) => withAuthor(row)) : matched);
       },
       update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         const row = reportVersions.find((entry) => entry.id === where.id);
@@ -713,10 +747,18 @@ export function createPrismaStub(
           matchesWhere(study as unknown as Record<string, unknown>, where),
         );
         const sorted = sortRows(matched, orderBy);
-        return Promise.resolve(sorted.slice(skip, take === undefined ? undefined : skip + take));
+        return Promise.resolve(
+          sorted
+            .slice(skip, take === undefined ? undefined : skip + take)
+            .map((row) => withAssignees(row as unknown as Record<string, unknown>)),
+        );
       },
-      findUnique: ({ where }: { where: { id: string } }) =>
-        Promise.resolve(studies.find((study) => study.id === where.id) ?? null),
+      findUnique: ({ where }: { where: { id: string } }) => {
+        const row = studies.find((study) => study.id === where.id);
+        return Promise.resolve(
+          row ? withAssignees(row as unknown as Record<string, unknown>) : null,
+        );
+      },
       update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         const study = studies.find((candidate) => candidate.id === where.id);
         if (!study) throw new Error('study not found');
