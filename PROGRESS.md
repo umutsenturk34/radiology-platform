@@ -368,9 +368,14 @@ gerçek completed dictation + current doctor lock ile complete-reading başarıl
 oldu; Study `WAITING_TRANSCRIPTION` durumuna geçti, doktor havuzundan çıktı ve
 backend lock'u bıraktı.
 
-FRONTEND-012 IN_PROGRESS — reporter queue yalnız gerçek
-`WAITING_TRANSCRIPTION` pool verisini kullanacak. Uygulama commit'i
-`a1fbda1`; canlı reporter acceptance bekleniyor.
+FRONTEND-012 DONE — canlı browser acceptance PASS: `reporter@test.local`
+login, gerçek `GET /studies?pool=WAITING_TRANSCRIPTION` çağrısı ve
+`FE011-TEST-1788206210` kaydının doğru `WAITING_TRANSCRIPTION` state'i
+doğrulandı; fake veri/state kullanılmadı.
+
+FRONTEND-013 IN_PROGRESS — reporter workspace gerçek study detail,
+start-transcription, lock, dictation playback ve report draft/version
+endpointlerini kullanacak.
 ```
 
 ## Current Frontend Task
@@ -378,13 +383,13 @@ FRONTEND-012 IN_PROGRESS — reporter queue yalnız gerçek
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-012 — Reporter Queue
+FRONTEND-013 — Reporter Workspace
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-012: `GET /studies?pool=WAITING_TRANSCRIPTION` ile gerçek reporter
-kuyruğunu oluştur; doktor havuzunun sabit `UNREAD` pool parametresini paylaşma.
+FRONTEND-013: gerçek study detail + start-transcription reporter lock +
+dictation playback + canonical ReportDto/ReportVersionDto gösterimi.
 
 ## Recently Completed Frontend Tasks
 
@@ -396,6 +401,7 @@ FRONTEND-006 — Lock UI (commit: bc39d06; canlı acceptance PASS)
 FRONTEND-007 — Doctor Study Workspace (commit: 756cd16; canlı acceptance PASS)
 FRONTEND-009 — Browser Audio Recorder (commit: 155c475; canlı acceptance PASS)
 FRONTEND-011 — Complete Reading Action (commit: 78dff46, 061c6c1; canlı acceptance PASS)
+FRONTEND-012 — Reporter Queue (commit: a1fbda1; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -428,9 +434,9 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-012: reporter role ile gerçek `WAITING_TRANSCRIPTION` Study'lerini
-listele. `pool=WAITING_TRANSCRIPTION` canonical endpointini kullan; frontend
-durum filtresiyle doktor `UNREAD` pool'unu çaprazlama.
+FRONTEND-013: Reporter Workspace için canonical report contract'ı eklendi.
+Gerçek `WAITING_TRANSCRIPTION` study ile start-transcription → own reporter
+lock → dictation playback → report draft/version canlı kabulünü çalıştır.
 ```
 
 ## Frontend Observation

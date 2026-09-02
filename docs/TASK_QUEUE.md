@@ -1872,7 +1872,7 @@ aynı sonuçlar gerçek servislere karşı alındı.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-005, BACKEND-026
 
 ### Acceptance
@@ -1886,7 +1886,13 @@ WAITING_TRANSCRIPTION Study'leri gösteriyor.
   paylaşılmaz.
 - Reporter navigation eklendi. Reporter detail route'u FRONTEND-013 kapsamı
   olduğundan kuyrukta çalışmayan bir action/link gösterilmez.
-- Canlı reporter acceptance bekleniyor; görev `IN_PROGRESS` kalır.
+- Canlı reporter acceptance tamamlanana kadar görev `IN_PROGRESS` tutuldu.
+
+### Completed
+
+- Canlı browser acceptance PASS: `reporter@test.local` login, reporter route,
+  gerçek `GET /studies?pool=WAITING_TRANSCRIPTION` çağrısı ve
+  `FE011-TEST-1788206210` kaydının `WAITING_TRANSCRIPTION` state'i doğrulandı.
 
 ---
 
@@ -1894,7 +1900,7 @@ WAITING_TRANSCRIPTION Study'leri gösteriyor.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-012, BACKEND-028
 
 ### Aynı Ekranda
