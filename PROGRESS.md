@@ -428,11 +428,11 @@ Last Successful Command:
 pnpm lint      -> PASS (0 errors, 1 pre-existing warning)
 pnpm typecheck -> PASS
 pnpm build     -> PASS
-backend unit tests 367 PASS
-backend e2e tests  338 PASS
-git push origin agent/backend -> be870d2..eca06e2
-railway up --service backend  -> deployment bf88455a SUCCESS
-live smoke over the public URL -> 18/18 PASS
+backend unit tests 377 PASS
+backend e2e tests  355 PASS
+git push origin agent/backend -> 9d6c672..83379ac
+railway up --service backend  -> deployment 0ffb721f SUCCESS
+live smoke over the public URL -> 20/20 PASS (FRONTEND-013)
 
 Live verification after the deploy (real HTTP, deployed build):
 
@@ -463,11 +463,39 @@ a fixture:
 That check created one extra pilot study (accession CLIN-1788128245). It is
 test data in a test hospital; nothing else was touched.
 
+FRONTEND-013 live smoke after deployment 0ffb721f (real HTTP, deployed build).
+A brand new study was driven through the whole chain rather than asserted from
+a fixture: HL7 -> images -> start-reading -> dictation upload (a real 6 KB WAV)
+-> complete-reading -> start-transcription.
+
+  GET  /studies/:id/report/versions   200 on the study FRONTEND-013 was
+                                      blocked on — history is readable again
+  POST /studies/:id/start-transcription  200, TRANSCRIBING
+       response lock                  ownerRole REPORTER,
+                                      heartbeatIntervalSeconds 20
+  GET  /studies/:id/lock              200, locked, owned by the current
+                                      reporter, type INTERNAL, ttl 60s
+  PUT  /studies/:id/report/draft      200 against the real backend
+  GET  /studies/:id/report/versions   200, v1 carries the text just saved
+  POST /studies/:id/lock/heartbeat    200, lock extended back to 60s
+  doctor + manager read the history   200 (AUTH_ROLES_PERMISSIONS section 91)
+  unknown study                       404 NOT_FOUND
+
 Current Problem:
-None.
+None blocking. One known limit is now documented and tested rather than
+latent: a reporter whose lock TTL lapses cannot resume an interrupted
+transcription (DISCOVERED-008). The lock itself works — it is created on
+start-transcription and kept; it simply expires after 60s without heartbeats,
+exactly as WORKFLOW_STATE_MACHINE section 32 specifies. A client that sends
+the heartbeat it is handed never reaches that state.
 
 Next Action:
-1. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
+1. DISCOVERED-008 needs a CONTRACT DECISION before any code: should
+   POST /studies/:id/resume-transcription exist, who may call it, and what
+   audit event does it write? The proposal is written out in TASK_QUEUE; it
+   was deliberately not implemented, because no document defines the resume
+   rule and inventing one would be inventing workflow behaviour.
+2. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
    dev mode, which the sweeper now makes testable.
 2. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
    the service. Dictation audio is still lost on every redeploy — the deploy
@@ -611,6 +639,7 @@ e577de6  feat(sla): derive state, remaining and overdue from the frozen deadline
 0c8b514  feat(pacs): adapter boundary and the pilot test adapter
 63f859e  feat(realtime): websocket gateway and workflow-derived events
 f3ddc35  feat(studies): complete the study detail contract for the frontend
+83379ac  feat(reports): report version history endpoint (FRONTEND-013)
 ```
 
 All six are on `origin/agent/backend`. Only `f3ddc35` is new since the last
@@ -639,6 +668,8 @@ PUT  /information/:noteId               InformationNoteDto
 GET  /information/:noteId/versions      InformationNoteVersionDto[]
 GET  /studies/:studyId/pacs/viewer      StudyPacsViewer
 GET  /studies/:studyId/pacs/series      StudyPacsSeries[]
+GET  /studies/:studyId/report           ReportDto
+GET  /studies/:studyId/report/versions  ReportVersionDto[]   (83379ac)
 WS   /realtime                          token in the Socket.IO handshake auth
 ```
 
