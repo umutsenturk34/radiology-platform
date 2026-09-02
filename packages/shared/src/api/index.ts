@@ -4,5 +4,6 @@ export * from './envelope';
 export * from './study';
 export * from './lock';
 export * from './dictation';
+export * from './report';
 export * from './information';
 export * from './pacs';
