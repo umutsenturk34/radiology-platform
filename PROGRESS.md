@@ -375,7 +375,8 @@ doğrulandı; fake veri/state kullanılmadı.
 
 FRONTEND-013 IN_PROGRESS — reporter workspace gerçek study detail,
 start-transcription, lock, dictation playback ve report draft/version
-endpointlerini kullanacak.
+endpointlerini kullanacak. Uygulama commit'i `d44a2d5`; canlı acceptance
+bekleniyor.
 ```
 
 ## Current Frontend Task

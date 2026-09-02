@@ -1916,6 +1916,17 @@ WAITING_TRANSCRIPTION Study'leri gösteriyor.
 
 sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlanıyor.
 
+### Implementation Note (2026-09-02)
+
+- Workspace gerçek `StudyDetail`, dictation list/playback, Information,
+  `ReportDto`/`ReportVersionDto` ve lock verisini gösterir.
+- `POST /studies/:id/start-transcription` sonrası backend'in `TRANSCRIBING`,
+  reporter assignment ve lock sonucunu yeniden sorgular.
+- Taslak kaydı yalnız `TRANSCRIBING` + current reporter lock ile gerçek
+  `PUT /studies/:id/report/draft` çağrısı yapar. Autosave FRONTEND-015,
+  submit-report FRONTEND-016 kapsamındadır.
+- Canlı acceptance henüz tamamlanmadığı için görev `IN_PROGRESS` kalır.
+
 ---
 
 ## FRONTEND-014 — Audio Player
