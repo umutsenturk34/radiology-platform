@@ -1925,6 +1925,9 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
 - Taslak kaydı yalnız `TRANSCRIBING` + current reporter lock ile gerçek
   `PUT /studies/:id/report/draft` çağrısı yapar. Autosave FRONTEND-015,
   submit-report FRONTEND-016 kapsamındadır.
+- `GET /studies/:id/report/versions` API sözleşmesinde tanımlı olsa da canlı
+  backend route'u henüz yayınlamıyor (HTTP 404). Aktif sürüm, gerçek
+  `GET /studies/:id/report` yanıtından gösterilir; sürüm geçmişi uydurulmaz.
 - Canlı acceptance henüz tamamlanmadığı için görev `IN_PROGRESS` kalır.
 
 ---
@@ -3901,3 +3904,28 @@ backend sorguyu reddediyor.
 - Doctor queue yalnız UNREAD pool ile uyumlu filtreleri gösterir veya pool ve
   status seçimini canonical, çelişmeyen sorgulara dönüştürür.
 - Başka queue'lara ait state frontend'de sahte listelenmez.
+
+---
+
+## DISCOVERED-007 — Report Version History Endpoint Missing
+
+**Owner:** BACKEND
+**Priority:** P0
+**Status:** TODO
+**Depends On:** BACKEND-028
+**Keşfedildi:** FRONTEND-013 canlı acceptance doğrulaması sırasında
+
+### Issue
+
+Canonical API contract section 81 `GET /studies/:id/report/versions` endpointini
+tanımlıyor. Ancak deployed `origin/agent/backend` HEAD `9d6c672` üzerindeki
+`ReportsController` bu route'u tanımlamıyor; canlı reporter workspace isteği
+HTTP 404 alıyor. `GET /studies/:id/report` yalnız aktif sürümü döndürdüğü için
+frontend geçmişi bundan türetemez.
+
+### Acceptance
+
+- Hospital scope ve yetkilendirme korunarak `GET /studies/:id/report/versions`
+  gerçek sıralı `ReportVersionDto[]` data zarfını döndürür.
+- Endpoint Railway'e deploy edilir; reporter workspace gerçek v1 listesi ile
+  canlı kabulü tamamlar.

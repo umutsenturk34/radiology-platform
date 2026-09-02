@@ -377,6 +377,13 @@ FRONTEND-013 IN_PROGRESS — reporter workspace gerçek study detail,
 start-transcription, lock, dictation playback ve report draft/version
 endpointlerini kullanacak. Uygulama commit'i `d44a2d5`; canlı acceptance
 bekleniyor.
+
+FRONTEND-013 canlı acceptance bulgusu: start-transcription ardından gerçek
+`TRANSCRIBING` ve DRAFT v1 görünürken canonical
+`GET /studies/:id/report/versions` isteği HTTP 404 alıyor. `origin/agent/backend`
+`9d6c672` ReportsController'ında bu route yok; `DISCOVERED-007` BACKEND P0
+olarak açıldı. Frontend aktif sürümü history gibi göstermiyor ve görev DONE
+değil.
 ```
 
 ## Current Frontend Task
@@ -417,6 +424,10 @@ audio persistence acceptance'ı DONE sayılmayacak.
 DISCOVERED-005 açık: READING durumunda kaybolan lock için canonical güvenli
 reacquire endpointi yok. `start-reading` yalnız UNREAD içindir; heartbeat için
 gerekli `sessionId` shared/start-reading cevabında bulunmaz.
+
+DISCOVERED-007 açık: API_CONTRACT section 81'deki
+`GET /studies/:id/report/versions` deployed backend'de route olarak yok ve
+HTTP 404 dönüyor. Report history canlı yüklenmeden FRONTEND-013 DONE olmaz.
 ```
 
 ## Frontend Known Issues
@@ -436,8 +447,10 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 
 ```text
 FRONTEND-013: Reporter Workspace için canonical report contract'ı eklendi.
-Gerçek `WAITING_TRANSCRIPTION` study ile start-transcription → own reporter
-lock → dictation playback → report draft/version canlı kabulünü çalıştır.
+DISCOVERED-007 backend handoff/deploy sonrası gerçek `WAITING_TRANSCRIPTION`
+study ile start-transcription → own reporter lock → dictation playback → report
+draft/version canlı kabulünü tekrar çalıştır. Aktif test studyde reporter lock
+artık yok; yeni study veya backendin güvenli lock akışı gerekir.
 ```
 
 ## Frontend Observation
