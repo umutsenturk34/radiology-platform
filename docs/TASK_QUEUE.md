@@ -1925,9 +1925,10 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
 - Taslak kaydı yalnız `TRANSCRIBING` + current reporter lock ile gerçek
   `PUT /studies/:id/report/draft` çağrısı yapar. Autosave FRONTEND-015,
   submit-report FRONTEND-016 kapsamındadır.
-- `GET /studies/:id/report/versions` API sözleşmesinde tanımlı olsa da canlı
-  backend route'u henüz yayınlamıyor (HTTP 404). Aktif sürüm, gerçek
-  `GET /studies/:id/report` yanıtından gösterilir; sürüm geçmişi uydurulmaz.
+- `GET /studies/:id/report/versions`, backend `83379ac` handoff ve Railway
+  deploy sonrası gerçek `ReportVersionDto[]` ile 200 doğrulandı. Reporter
+  lock TTL sonrası kaybolursa `resume-transcription` backend handoff/deploy
+  edilene kadar frontend recovery veya fake lock üretmez.
 - Canlı acceptance henüz tamamlanmadığı için görev `IN_PROGRESS` kalır.
 
 ---
@@ -3911,21 +3912,19 @@ backend sorguyu reddediyor.
 
 **Owner:** BACKEND
 **Priority:** P0
-**Status:** TODO
+**Status:** DONE
 **Depends On:** BACKEND-028
 **Keşfedildi:** FRONTEND-013 canlı acceptance doğrulaması sırasında
 
 ### Issue
 
 Canonical API contract section 81 `GET /studies/:id/report/versions` endpointini
-tanımlıyor. Ancak deployed `origin/agent/backend` HEAD `9d6c672` üzerindeki
-`ReportsController` bu route'u tanımlamıyor; canlı reporter workspace isteği
-HTTP 404 alıyor. `GET /studies/:id/report` yalnız aktif sürümü döndürdüğü için
-frontend geçmişi bundan türetemez.
+tanımlıyordu; `83379ac` bunu backend controller/service'e ekledi. Railway
+deploy sonrası reporter workspace gerçek v1 satırını başarıyla yükledi.
 
 ### Acceptance
 
 - Hospital scope ve yetkilendirme korunarak `GET /studies/:id/report/versions`
-  gerçek sıralı `ReportVersionDto[]` data zarfını döndürür.
-- Endpoint Railway'e deploy edilir; reporter workspace gerçek v1 listesi ile
-  canlı kabulü tamamlar.
+  gerçek sıralı `ReportVersionDto[]` data zarfını döndürüyor.
+- Endpoint Railway'de canlı; reporter workspace gerçek v1 listesi ile
+  doğrulandı.
