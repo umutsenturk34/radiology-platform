@@ -428,11 +428,11 @@ Last Successful Command:
 pnpm lint      -> PASS (0 errors, 1 pre-existing warning)
 pnpm typecheck -> PASS
 pnpm build     -> PASS
-backend unit tests 377 PASS
-backend e2e tests  355 PASS
-git push origin agent/backend -> 9d6c672..83379ac
-railway up --service backend  -> deployment 0ffb721f SUCCESS
-live smoke over the public URL -> 20/20 PASS (FRONTEND-013)
+backend unit tests 386 PASS
+backend e2e tests  372 PASS
+git push origin agent/backend -> a86add6..ff8c38e
+railway up --service backend  -> deployment ef24b83c SUCCESS
+live smoke over the public URL -> 20/20 (FRONTEND-013) + 17/17 (resume)
 
 Live verification after the deploy (real HTTP, deployed build):
 
@@ -481,22 +481,29 @@ a fixture: HL7 -> images -> start-reading -> dictation upload (a real 6 KB WAV)
   doctor + manager read the history   200 (AUTH_ROLES_PERMISSIONS section 91)
   unknown study                       404 NOT_FOUND
 
+DISCOVERED-008 resume-transcription was approved and is live. Verified on the
+real thing rather than a staged one: study b32b239c, the study FRONTEND-013 was
+blocked on, had sat TRANSCRIBING with a genuinely lapsed lock for days.
+
+  before  draft save 423 LOCK_NOT_OWNED, no lock, assignment intact
+  resume  200, lock back with the same reporter, ttl 60s, INTERNAL
+          existing draft v1 returned — no new version
+  after   draft save 200, history still one version carrying the new text
+          study still TRANSCRIBING — resume is not a transition
+  refused doctor 403 FORBIDDEN and left NO lock behind
+          UNREAD study 409, unknown study 404, no token 401
+          idempotent while the lock is held
+
 Current Problem:
-None blocking. One known limit is now documented and tested rather than
-latent: a reporter whose lock TTL lapses cannot resume an interrupted
-transcription (DISCOVERED-008). The lock itself works — it is created on
-start-transcription and kept; it simply expires after 60s without heartbeats,
-exactly as WORKFLOW_STATE_MACHINE section 32 specifies. A client that sends
-the heartbeat it is handed never reaches that state.
+None.
 
 Next Action:
-1. DISCOVERED-008 needs a CONTRACT DECISION before any code: should
-   POST /studies/:id/resume-transcription exist, who may call it, and what
-   audit event does it write? The proposal is written out in TASK_QUEUE; it
-   was deliberately not implemented, because no document defines the resume
-   rule and inventing one would be inventing workflow behaviour.
-2. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
+1. BACKEND-042 Image missing (P1) is next, then BACKEND-040 accelerated SLA
    dev mode, which the sweeper now makes testable.
+2. A doctor whose READING lock lapses has the same dead end the reporter had.
+   No endpoint was added, because nothing defines that rule — see
+   WORKFLOW_STATE_MACHINE 34.1. It needs the same contract decision the
+   reporter path just got.
 2. DEVOPS-004 stays BLOCKED_EXTERNAL: still no bucket and no S3_* variable on
    the service. Dictation audio is still lost on every redeploy — the deploy
    above wiped .storage again, as expected.
@@ -640,6 +647,7 @@ e577de6  feat(sla): derive state, remaining and overdue from the frozen deadline
 63f859e  feat(realtime): websocket gateway and workflow-derived events
 f3ddc35  feat(studies): complete the study detail contract for the frontend
 83379ac  feat(reports): report version history endpoint (FRONTEND-013)
+ff8c38e  feat(reports): resume-transcription after a lapsed lock (DISCOVERED-008)
 ```
 
 All six are on `origin/agent/backend`. Only `f3ddc35` is new since the last
@@ -670,6 +678,8 @@ GET  /studies/:studyId/pacs/viewer      StudyPacsViewer
 GET  /studies/:studyId/pacs/series      StudyPacsSeries[]
 GET  /studies/:studyId/report           ReportDto
 GET  /studies/:studyId/report/versions  ReportVersionDto[]   (83379ac)
+POST /studies/:studyId/resume-transcription   same body as
+                                        start-transcription  (ff8c38e)
 WS   /realtime                          token in the Socket.IO handshake auth
 ```
 
