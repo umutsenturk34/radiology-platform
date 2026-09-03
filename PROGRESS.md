@@ -380,9 +380,10 @@ bekleniyor.
 
 FRONTEND-013 handoff doğrulaması: backend `83379ac` sonrasında canonical
 `GET /studies/:id/report/versions` Railway'de 200 dönüyor; workspace gerçek
-DRAFT v1 history satırını gösteriyor. `resume-transcription` deploy edilene
-kadar reporter lock recovery ve heartbeat eklenmeyecek; FRONTEND-013 DONE
-değil.
+DRAFT v1 history satırını gösteriyor. `resume-transcription` + canonical
+heartbeat frontend implementasyonu `8e83841` ile hazır; reporter lock recovery
+ve draft-save UI'ı backend yanıtı dışında state üretmiyor. Son canlı resume
+acceptance tamamlanmadan FRONTEND-013 DONE değil.
 ```
 
 ## Current Frontend Task
@@ -424,9 +425,10 @@ DISCOVERED-005 açık: READING durumunda kaybolan lock için canonical güvenli
 reacquire endpointi yok. `start-reading` yalnız UNREAD içindir; heartbeat için
 gerekli `sessionId` shared/start-reading cevabında bulunmaz.
 
-Reporter lock recovery: DISCOVERED-008 `resume-transcription` backend endpointi
-uygulanıyor. Deploy/canonical contract handoff gelmeden frontend recovery veya
-fake lock üretmeyecek; own-lock + heartbeat + draft-save acceptance bekliyor.
+Reporter lock recovery: DISCOVERED-008 endpoint handoff'u canlı. Frontend
+`resume-transcription` dönüşündeki interval ile heartbeat gönderir ve hata
+alırsa own-lock varsayımını bırakır. Lock yok → resume 200 canlı acceptance
+adımı bekliyor.
 ```
 
 ## Frontend Known Issues
@@ -446,8 +448,8 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 
 ```text
 FRONTEND-013: Reporter Workspace için canonical report contract'ı eklendi.
-Report history handoff'u canlı doğrulandı. DISCOVERED-008 backend handoff/deploy
-sonrası gerçek `resume-transcription` → own reporter lock → interval'e göre
+Report history handoff'u canlı doğrulandı. Gerçek `TRANSCRIBING` + lock yok
+study ile `resume-transcription` → own reporter lock → interval'e göre
 heartbeat → draft save → refresh sonrası draft/version zincirini canlı doğrula.
 ```
 

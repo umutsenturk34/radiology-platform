@@ -1927,8 +1927,10 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
   submit-report FRONTEND-016 kapsamındadır.
 - `GET /studies/:id/report/versions`, backend `83379ac` handoff ve Railway
   deploy sonrası gerçek `ReportVersionDto[]` ile 200 doğrulandı. Reporter
-  lock TTL sonrası kaybolursa `resume-transcription` backend handoff/deploy
-  edilene kadar frontend recovery veya fake lock üretmez.
+  lock TTL sonrası kaybolduğunda gerçek `POST /studies/:id/resume-transcription`
+  çağrısı kullanılır. `AcquiredLockInfo.heartbeatIntervalSeconds` yalnız
+  backend yanıtından alınır; heartbeat başarısız olursa taslak kaydı fail-closed
+  kapatılır. Canlı resume acceptance henüz tamamlanmadı.
 - Canlı acceptance henüz tamamlanmadığı için görev `IN_PROGRESS` kalır.
 
 ---
