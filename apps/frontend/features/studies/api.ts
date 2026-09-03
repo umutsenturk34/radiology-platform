@@ -145,3 +145,12 @@ export function completeReading(studyId: string, dictationId: string) {
 export function startTranscription(studyId: string) {
   return getApiClient().post<StartTranscriptionResult>(`/studies/${studyId}/start-transcription`);
 }
+
+/** Recovery for an assigned reporter whose TRANSCRIBING lock expired. */
+export function resumeTranscription(studyId: string) {
+  return getApiClient().post<StartTranscriptionResult>(`/studies/${studyId}/resume-transcription`);
+}
+
+export function heartbeatStudyLock(studyId: string) {
+  return getApiClient().post<{ valid: true; expiresInSeconds: number }>(`/studies/${studyId}/lock/heartbeat`);
+}
