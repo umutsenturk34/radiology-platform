@@ -1472,6 +1472,102 @@ WAITING_TRANSCRIPTION
 }
 ```
 
+## 51.1 RESUME TRANSCRIPTION
+
+```http
+POST /api/v1/studies/{studyId}/resume-transcription
+```
+
+Actor:
+
+> REPORTER — ve yalnızca Study'ye **atanmış** olan reporter
+
+### Neden var
+
+Reporter lock ephemeral'dır: TTL 60 sn, heartbeat 20 sn
+(`WORKFLOW_STATE_MACHINE.md` section 32). Tarayıcı kapanır, sekme uyur ya da ağ
+kesilirse heartbeat durur ve TTL dolar (section 34). Bu noktada:
+
+```text
+study.status          TRANSCRIBING   (değişmedi)
+assignedReporterId    reporter       (değişmedi)
+aktif REPORTER assignment            (değişmedi)
+report                DRAFT          (değişmedi)
+Redis lock            YOK
+```
+
+Assignment kalıcı, lock ephemeral. `start-transcription` yalnız
+`WAITING_TRANSCRIPTION` kabul ettiği için reporter kendi işine geri
+dönemiyordu. Bu uç o kurtarma yolunu verir.
+
+**Bu uç heartbeat'in yerine geçmez.** Heartbeat gönderen istemci bu duruma hiç
+düşmez; bu uç yalnızca kesinti sonrası kurtarmadır.
+
+### Koşullar
+
+```text
+study.status === TRANSCRIBING
+study.assignedReporterId === caller.id
+aktif REPORTER assignment var (releasedAt = null)
+lock ya boş ya zaten caller'ın
+```
+
+Yetki kontrolleri lock alınmadan **önce** yapılır: aksi hâlde yetkisiz bir
+çağrı, reddedilmeden önce bir an için lock'ı kapmış olurdu.
+
+### Sonuç
+
+```text
+lock aynı atomic SET NX ile alınır (start-transcription ile aynı yol)
+study.status DEĞİŞMEZ
+yeni report version yaratılmaz, mevcut DRAFT olduğu gibi kalır
+audit: TRANSCRIPTION_RESUMED
+realtime: study.locked
+```
+
+Zaten caller'ın elindeyse lock yenilenir; çağrı idempotenttir.
+
+### Response
+
+`start-transcription` ile **birebir aynı gövde**, böylece frontend tek bir
+handler kullanabilir:
+
+```json
+{
+  "data": {
+    "studyId": "...",
+    "status": "TRANSCRIBING",
+    "report": {
+      "id": "...",
+      "status": "DRAFT",
+      "currentVersion": { "id": "...", "versionNumber": 1, "content": "..." }
+    },
+    "lock": {
+      "ownerUserId": "...",
+      "ownerRole": "REPORTER",
+      "lockedAt": "...",
+      "heartbeatIntervalSeconds": 20
+    }
+  }
+}
+```
+
+### Hatalar
+
+```text
+423 STUDY_LOCKED                  lock başka bir kullanıcıda
+403 STUDY_NOT_ASSIGNED_TO_USER    Study başka bir reporter'a atanmış
+403 HOSPITAL_ACCESS_DENIED        Study başka hastanede
+409 INVALID_STATE_TRANSITION      Study TRANSCRIBING değil
+404 NOT_FOUND                     Study yok
+401 UNAUTHORIZED                  token yok
+403 FORBIDDEN                     rol REPORTER değil
+422 VALIDATION_ERROR              studyId UUID değil
+```
+
+`STUDY_LOCKED` gövdesi mevcut sahibi taşır (section 104), böylece frontend
+"çalışmayı şu an X kullanıyor" diyebilir.
+
 ---
 
 # 52. GET REPORT
@@ -3480,7 +3576,9 @@ GET    /dictations/:id/playback
 POST   /studies/:id/complete-reading
 
 POST   /studies/:id/start-transcription
+POST   /studies/:id/resume-transcription
 GET    /studies/:id/report
+GET    /studies/:id/report/versions
 PUT    /studies/:id/report/draft
 POST   /studies/:id/submit-report
 

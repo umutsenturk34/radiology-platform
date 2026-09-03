@@ -1157,6 +1157,50 @@ Tarayıcı beklenmedik şekilde kapanırsa:
 
 Backend sonraki erişimde stale assignment olup olmadığını kontrol edebilir.
 
+## 34.1 KESİNTİ SONRASI DEVAM
+
+Assignment ile lock **farklı ömürlere** sahiptir:
+
+```text
+assignment   kalıcı   PostgreSQL   section 74 invariant 2
+lock         geçici   Redis        TTL 60 sn
+```
+
+Lock'ın düşmesi işin kaybolması değildir. TTL dolduğunda Study hâlâ
+`TRANSCRIBING`, `assignedReporterId` hâlâ dolu, aktif REPORTER assignment hâlâ
+duruyor ve report DRAFT olarak yerinde.
+
+Bu durumda lock sahipliği gerektiren yazma işlemleri **reddedilmelidir**
+(`LOCK_NOT_OWNED`). Lock yoksa sahiplik varsayılamaz; aksi hâlde aynı taslağa
+iki kişi yazabilirdi.
+
+Atanmış aktör kendi işine şu uçla döner:
+
+```text
+POST /studies/{studyId}/resume-transcription     REPORTER
+```
+
+Kurallar:
+
+```text
+status TRANSCRIBING olmalı            (state değişmez)
+çağıran assignedReporterId olmalı     (başka reporter giremez)
+aktif assignment bulunmalı
+lock boş veya zaten çağıranındır      (başkasındaysa STUDY_LOCKED)
+lock aynı atomic SET NX ile alınır
+yeni report version yaratılmaz
+audit: TRANSCRIPTION_RESUMED
+```
+
+Bu, force release değildir: başkasının lock'ı **alınmaz**. Force release
+istisnai bir kurtarma yolu olarak Operation/Manager'da kalır (section 33).
+
+Devam etme yolu heartbeat'in yerine geçmez. Heartbeat gönderen istemci bu
+duruma hiç düşmez; bu yol yalnızca kesinti sonrası içindir.
+
+Doctor tarafındaki `READING` için karşılık gelen bir uç **tanımlı değildir**;
+tanımlanana kadar uydurulmamalıdır.
+
 ---
 
 # 35. STATE TRANSITION SERVICE
@@ -1237,6 +1281,7 @@ Ana geçiş tablosu:
 | READING | Doctor completes dictation | READ |
 | READ | Workflow continues | WAITING_TRANSCRIPTION |
 | WAITING_TRANSCRIPTION | Reporter starts | TRANSCRIBING |
+| TRANSCRIBING | Reporter resumes after a lost lock | TRANSCRIBING (değişmez) |
 | TRANSCRIBING | Reporter completes report | WAITING_APPROVAL |
 | WAITING_APPROVAL | Doctor final approval | FINAL |
 | FINAL | Create HBYS job | HBYS_PENDING |

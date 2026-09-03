@@ -386,13 +386,12 @@ describe('Reports (e2e)', () => {
       expect(detail.body.data.lock.locked).toBe(false);
     });
 
-    it('cannot be recovered with start-transcription, which is the DISCOVERED-008 gap', async () => {
+    it('is not recovered by start-transcription or heartbeat', async () => {
       await startTranscription().expect(200);
       await post(`/api/v1/studies/${STUDY}/lock/release`, 'reporterA').expect(200);
 
-      // Documented here so the dead end is a known, tested fact rather than
-      // something the frontend rediscovers: the study has left
-      // WAITING_TRANSCRIPTION, so the entry point refuses it.
+      // The study has left WAITING_TRANSCRIPTION, so the entry point refuses
+      // it — which is why resume-transcription exists.
       const response = await startTranscription().expect(409);
       expect(response.body.error.code).toBe('INVALID_STATE_TRANSITION');
 
@@ -406,6 +405,171 @@ describe('Reports (e2e)', () => {
 
       const response = await startTranscription('reporterB').expect(423);
       expect(response.body.error.code).toBe('STUDY_LOCKED');
+    });
+  });
+
+  /**
+   * `POST /studies/:id/resume-transcription`
+   * (API_CONTRACT section 51.1, WORKFLOW_STATE_MACHINE section 34.1).
+   *
+   * Recovery after a lapsed lock. What matters is that it recovers the RIGHT
+   * reporter's work and nobody else's, so most of these cases are about who is
+   * refused.
+   */
+  describe('resume transcription', () => {
+    const resume = (role = 'reporterA') =>
+      post(`/api/v1/studies/${STUDY}/resume-transcription`, role);
+
+    /** Reproduces the live FRONTEND-013 state: TRANSCRIBING, draft, no lock. */
+    async function loseTheLock(content = 'Yarim kalan taslak') {
+      await startTranscription().expect(200);
+      await put(`/api/v1/studies/${STUDY}/report/draft`, 'reporterA', { content }).expect(200);
+      await post(`/api/v1/studies/${STUDY}/lock/release`, 'reporterA').expect(200);
+    }
+
+    it('gives the assigned reporter the lock back', async () => {
+      await loseTheLock();
+
+      const response = await resume().expect(200);
+
+      expect(response.body.data).toMatchObject({
+        studyId: STUDY,
+        status: 'TRANSCRIBING',
+        lock: { ownerUserId: 'u-reporter', ownerRole: 'REPORTER' },
+      });
+      expect(response.body.data.lock.heartbeatIntervalSeconds).toBeGreaterThan(0);
+    });
+
+    it('makes draft save work again', async () => {
+      await loseTheLock();
+      await put(`/api/v1/studies/${STUDY}/report/draft`, 'reporterA', { content: 'x' }).expect(423);
+
+      await resume().expect(200);
+
+      await put(`/api/v1/studies/${STUDY}/report/draft`, 'reporterA', {
+        content: 'Kaldigi yerden devam',
+      }).expect(200);
+
+      const report = await get(`/api/v1/studies/${STUDY}/report`, 'reporterA').expect(200);
+      expect(report.body.data.currentVersion.content).toBe('Kaldigi yerden devam');
+    });
+
+    it('keeps the existing draft instead of starting a new version', async () => {
+      await loseTheLock('Kaybolmamasi gereken metin');
+
+      const response = await resume().expect(200);
+
+      expect(response.body.data.report.currentVersion).toMatchObject({
+        versionNumber: 1,
+        content: 'Kaybolmamasi gereken metin',
+      });
+
+      const versions = await get(`/api/v1/studies/${STUDY}/report/versions`, 'reporterA').expect(200); // prettier-ignore
+      expect(versions.body.data).toHaveLength(1);
+    });
+
+    it('does not move the study out of TRANSCRIBING', async () => {
+      await loseTheLock();
+
+      await resume().expect(200);
+
+      const detail = await get(`/api/v1/studies/${STUDY}`, 'reporterA').expect(200);
+      expect(detail.body.data.status).toBe('TRANSCRIBING');
+    });
+
+    it('writes a TRANSCRIPTION_RESUMED audit record', async () => {
+      await loseTheLock();
+
+      await resume().expect(200);
+
+      const entry = harness.auditLogs.find((row) => row.eventType === 'TRANSCRIPTION_RESUMED');
+      expect(entry).toMatchObject({ studyId: STUDY, actorUserId: 'u-reporter', actorRole: 'REPORTER' }); // prettier-ignore
+    });
+
+    it('is idempotent while the reporter still holds the lock', async () => {
+      await startTranscription().expect(200);
+
+      const response = await resume().expect(200);
+
+      expect(response.body.data.lock.ownerUserId).toBe('u-reporter');
+      // Still exactly one draft; a second call did not fork the work.
+      const versions = await get(`/api/v1/studies/${STUDY}/report/versions`, 'reporterA').expect(200); // prettier-ignore
+      expect(versions.body.data).toHaveLength(1);
+    });
+
+    it('refuses a different reporter with 403 STUDY_NOT_ASSIGNED_TO_USER', async () => {
+      await loseTheLock();
+
+      const response = await resume('reporterB').expect(403);
+
+      expect(response.body.error.code).toBe('STUDY_NOT_ASSIGNED_TO_USER');
+    });
+
+    it('does not let a different reporter take the lock even momentarily', async () => {
+      await loseTheLock();
+
+      await resume('reporterB').expect(403);
+
+      // Authorization runs before the acquire, so the refused call left no lock
+      // behind for the rightful reporter to trip over.
+      const lock = await get(`/api/v1/studies/${STUDY}/lock`, 'reporterA').expect(200);
+      expect(lock.body.data.locked).toBe(false);
+
+      await resume('reporterA').expect(200);
+    });
+
+    it('survives an Operation force release: the reporter can resume afterwards', async () => {
+      await startTranscription('reporterA').expect(200);
+      await post(`/api/v1/studies/${STUDY}/lock/force-release`, 'operation', {
+        reason: 'Kurtarma testi',
+      }).expect(200);
+
+      // Force release frees the study; it does not end the assignment, so the
+      // same reporter is still the one entitled to resume.
+      await resume('reporterA').expect(200);
+      const lock = await get(`/api/v1/studies/${STUDY}/lock`, 'reporterA').expect(200);
+      expect(lock.body.data.ownerUserId).toBe('u-reporter');
+    });
+
+    it('refuses a study that is not TRANSCRIBING', async () => {
+      const response = await resume().expect(409);
+
+      expect(response.body.error.code).toBe('INVALID_STATE_TRANSITION');
+    });
+
+    it('refuses a study in an unauthorized hospital', async () => {
+      const response = await post(
+        `/api/v1/studies/${STUDY_OUT_OF_SCOPE.id}/resume-transcription`,
+        'reporterA',
+      ).expect(403);
+
+      expect(response.body.error.code).toBe('HOSPITAL_ACCESS_DENIED');
+    });
+
+    it.each(['doctor', 'operation', 'manager'])('refuses %s, who is not a reporter', async (role) => {
+      await loseTheLock();
+
+      const response = await resume(role).expect(403);
+      expect(response.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('returns 404 for a study that does not exist', async () => {
+      const response = await post(
+        '/api/v1/studies/99999999-9999-4999-8999-999999999999/resume-transcription',
+        'reporterA',
+      ).expect(404);
+
+      expect(response.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('requires authentication', async () => {
+      await request(server())
+        .post(`/api/v1/studies/${STUDY}/resume-transcription`)
+        .expect(401);
+    });
+
+    it('rejects a malformed studyId with 422', async () => {
+      await post('/api/v1/studies/not-a-uuid/resume-transcription', 'reporterA').expect(422);
     });
   });
 

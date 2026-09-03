@@ -443,6 +443,14 @@ export function createPrismaStub(
         assignments.push(data);
         return Promise.resolve(data);
       },
+      findFirst: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          assignments.find((row) =>
+            Object.entries(where).every(([key, value]) =>
+              value === null ? row[key] == null : row[key] === value,
+            ),
+          ) ?? null,
+        ),
       updateMany: ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
         const matches = assignments.filter((row) =>
           Object.entries(where).every(([key, value]) =>

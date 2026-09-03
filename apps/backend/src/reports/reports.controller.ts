@@ -29,7 +29,8 @@ const studyIdPipe = new ParseUUIDPipe({
 });
 
 /**
- * Reporter workflow endpoints (docs/API_CONTRACT.md sections 50-56 and 81).
+ * Reporter workflow endpoints (docs/API_CONTRACT.md sections 50-56, 51.1
+ * and 81).
  *
  * Reading the report is open to every role with hospital access; writing is
  * REPORTER plus lock ownership, enforced in the service.
@@ -49,6 +50,21 @@ export class ReportsController {
     @Param('studyId', studyIdPipe) studyId: string,
   ) {
     return this.reports.startTranscription(user, studyId);
+  }
+
+  /**
+   * Recovery after a lapsed lock (API_CONTRACT section 51.1). `@Roles` is the
+   * coarse gate; that the caller is THIS study's reporter is checked in the
+   * service, which has the assignment loaded.
+   */
+  @Roles(UserRole.REPORTER)
+  @Post(':studyId/resume-transcription')
+  @HttpCode(HttpStatus.OK)
+  async resumeTranscription(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+  ) {
+    return this.reports.resumeTranscription(user, studyId);
   }
 
   @Get(':studyId/report')

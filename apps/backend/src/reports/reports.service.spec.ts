@@ -1,6 +1,7 @@
 import { ReportSource, ReportStatus, StudyStatus, UserRole, UserStatus } from '@radiology/shared';
 import { ReportsService } from './reports.service';
 import { HospitalScopeService } from '../auth/hospital-scope.service';
+import { StudyLockedException } from '../locks/study-lock.service';
 import { AppException } from '../common/errors/app.exception';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -210,4 +211,176 @@ describe('ReportsService.listVersions', () => {
       ).resolves.toHaveLength(1);
     },
   );
+});
+
+
+/**
+ * `resumeTranscription` guards that are hard to reach over HTTP.
+ *
+ * A foreign lock on a TRANSCRIBING study has no legitimate path today, so the
+ * 423 branch is defensive; stubbing the lock service is the honest way to
+ * prove it is wired rather than staging a scenario the workflow cannot produce.
+ */
+function createResumeService(options: {
+  status?: StudyStatus;
+  assignedReporterId?: string | null;
+  assignment?: boolean;
+  lockedByOther?: boolean;
+} = {}) {
+  const {
+    status = StudyStatus.TRANSCRIBING,
+    assignedReporterId = 'user-1',
+    assignment = true,
+    lockedByOther = false,
+  } = options;
+
+  const acquired: string[] = [];
+
+  const prisma = {
+    study: {
+      findUnique: () =>
+        Promise.resolve({
+          id: STUDY_ID,
+          hospitalId: HOSPITAL_A,
+          patientId: 'patient-1',
+          status,
+          assignedDoctorId: null,
+          assignedReporterId,
+        }),
+    },
+    studyAssignment: {
+      findFirst: () => Promise.resolve(assignment ? { id: 'assignment-1' } : null),
+    },
+    user: { findUnique: () => Promise.resolve({ firstName: 'Test', lastName: 'Reporter' }) },
+    report: {
+      findUnique: () =>
+        Promise.resolve({
+          id: REPORT_ID,
+          studyId: STUDY_ID,
+          status: ReportStatus.DRAFT,
+          finalizedAt: null,
+          currentVersion: version({ id: 'v1', versionNumber: 1 }),
+        }),
+    },
+  } as unknown as PrismaService;
+
+  const locks = {
+    heartbeatSeconds: 20,
+    acquire: (studyId: string) => {
+      if (lockedByOther) {
+        throw new StudyLockedException({
+          studyId,
+          ownerUserId: 'someone-else',
+          ownerDisplayName: 'Baska Kullanici',
+          ownerRole: UserRole.REPORTER,
+          lockedAt: new Date().toISOString(),
+        });
+      }
+      acquired.push(studyId);
+      return Promise.resolve({
+        lock: {
+          studyId,
+          ownerUserId: 'user-1',
+          ownerDisplayName: 'Test Reporter',
+          ownerRole: UserRole.REPORTER,
+          lockedAt: '2026-09-02T10:00:00.000Z',
+        },
+        alreadyOwned: false,
+      });
+    },
+  };
+
+  const audited: string[] = [];
+  const emitted: string[] = [];
+
+  const service = new ReportsService(
+    prisma,
+    {} as never,
+    locks as never,
+    new HospitalScopeService(),
+    { record: (entry: { eventType: string }) => { audited.push(entry.eventType); return Promise.resolve(); } } as never, // prettier-ignore
+    { emitStudyLocked: () => emitted.push('study.locked') } as never,
+    { child: () => ({ info: () => undefined, warn: () => undefined, error: () => undefined }) } as never, // prettier-ignore
+  );
+
+  return { service, acquired, audited, emitted };
+}
+
+describe('ReportsService.resumeTranscription', () => {
+  const reporter = principal(UserRole.REPORTER, [HOSPITAL_A]);
+
+  it('takes the lock, audits and announces it', async () => {
+    const { service, acquired, audited, emitted } = createResumeService();
+
+    const result = await service.resumeTranscription(reporter, STUDY_ID);
+
+    expect(result).toMatchObject({
+      studyId: STUDY_ID,
+      status: StudyStatus.TRANSCRIBING,
+      lock: { ownerUserId: 'user-1', ownerRole: UserRole.REPORTER, heartbeatIntervalSeconds: 20 },
+    });
+    expect(acquired).toEqual([STUDY_ID]);
+    expect(audited).toEqual(['TRANSCRIPTION_RESUMED']);
+    expect(emitted).toEqual(['study.locked']);
+  });
+
+  it('propagates STUDY_LOCKED rather than taking a lock someone else holds', async () => {
+    const { service } = createResumeService({ lockedByOther: true });
+
+    const error = await expectAppError(
+      service.resumeTranscription(reporter, STUDY_ID),
+      'STUDY_LOCKED',
+    );
+
+    expect(error.getStatus()).toBe(423);
+    expect(error.details).toMatchObject({ ownerUserId: 'someone-else' });
+  });
+
+  it.each([
+    StudyStatus.WAITING_TRANSCRIPTION,
+    StudyStatus.WAITING_APPROVAL,
+    StudyStatus.UNREAD,
+    StudyStatus.FINAL,
+  ])('refuses a study in %s without touching the lock', async (status) => {
+    const { service, acquired } = createResumeService({ status });
+
+    await expectAppError(
+      service.resumeTranscription(reporter, STUDY_ID),
+      'INVALID_STATE_TRANSITION',
+    );
+    expect(acquired).toEqual([]);
+  });
+
+  it('refuses a reporter the study is not assigned to, before acquiring', async () => {
+    const { service, acquired, audited } = createResumeService({ assignedReporterId: 'other-user' });
+
+    await expectAppError(
+      service.resumeTranscription(reporter, STUDY_ID),
+      'STUDY_NOT_ASSIGNED_TO_USER',
+    );
+    expect(acquired).toEqual([]);
+    expect(audited).toEqual([]);
+  });
+
+  it('refuses when the assignment has already been released', async () => {
+    // The study row may still carry the id while the assignment row is closed;
+    // the closed assignment is what decides (WORKFLOW_STATE_MACHINE 74).
+    const { service, acquired } = createResumeService({ assignment: false });
+
+    await expectAppError(
+      service.resumeTranscription(reporter, STUDY_ID),
+      'STUDY_NOT_ASSIGNED_TO_USER',
+    );
+    expect(acquired).toEqual([]);
+  });
+
+  it('refuses a study outside the caller hospital scope', async () => {
+    const { service, acquired } = createResumeService();
+
+    await expectAppError(
+      service.resumeTranscription(principal(UserRole.REPORTER, [HOSPITAL_B]), STUDY_ID),
+      'HOSPITAL_ACCESS_DENIED',
+    );
+    expect(acquired).toEqual([]);
+  });
 });

@@ -34,6 +34,8 @@ export const AuditEventType = {
 
   // reporting
   TRANSCRIPTION_STARTED: 'TRANSCRIPTION_STARTED',
+  /** The assigned reporter took the lock again after it lapsed. */
+  TRANSCRIPTION_RESUMED: 'TRANSCRIPTION_RESUMED',
   REPORT_SUBMITTED: 'REPORT_SUBMITTED',
 
   // approval and finalization

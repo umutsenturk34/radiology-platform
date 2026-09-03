@@ -4396,7 +4396,7 @@ test/reports.e2e-spec.ts              9 e2e testi (history, supersede, 4 rol, ha
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO — sözleşme kararı bekliyor (BLOCKED_SPEC)  
+**Status:** DONE  
 **Depends On:** BACKEND-026  
 **Keşfedildi:** FRONTEND-013 canlı acceptance sırasında
 
@@ -4445,7 +4445,7 @@ assignment olup olmadığını **kontrol edebilir**" diyor — izin veren bir c�
 tanımlı bir kural değil. Resume için aktör, state ve audit kuralı hiçbir
 dokümanda tanımlı değil, bu yüzden davranış **uydurulmadı**.
 
-### Önerilen sözleşme (onay bekliyor)
+### Sözleşme (ONAYLANDI, uygulandı)
 
 ```http
 POST /api/v1/studies/{studyId}/resume-transcription
@@ -4478,20 +4478,58 @@ FRONTEND-013 asıl açığı zaten heartbeat: `start-transcription` cevabı
 bu duruma hiç düşmez. Resume ucu, heartbeat'i kesilen istemci için bir
 **kurtarma** yoludur, heartbeat'in yerine geçmez.
 
-### Yapılacaklar
+### Completed
 
-- Sözleşme kararı: resume ucu onaylansın mı, aktörü ve audit event'i ne olsun
-- Onaylanırsa `API_CONTRACT.md` + `WORKFLOW_STATE_MACHINE.md` güncellenir,
-  sonra implementasyon ve e2e (aynı reporter resume eder / başka reporter 403 /
-  lock başkasındaysa 423)
+Sözleşme önce, kod sonra (`API_CONTRACT.md` section 135 sırası):
 
-### Şu anki davranış test altında
+- `API_CONTRACT.md` section **51.1** — uç, koşullar, response ve hata tablosu.
+  Response `start-transcription` ile **birebir aynı** gövde, böylece frontend
+  tek handler kullanır. Section 137 minimum uç listesine de eklendi
+- `WORKFLOW_STATE_MACHINE.md` section **34.1** — assignment kalıcı / lock
+  geçici ayrımı ve devam kuralı. Transition tablosunda resume, state
+  **değiştirmeyen** satır olarak görünüyor
+- `ReportsService.resumeTranscription()` + `POST :studyId/resume-transcription`
+- `AuditEventType.TRANSCRIPTION_RESUMED`
+- `NotAssignedReporterException` (403 `STUDY_NOT_ASSIGNED_TO_USER`) —
+  approval tarafındaki `NotAssignedDoctorException` ile simetrik
 
-`test/reports.e2e-spec.ts` → "reporter lock lifetime": lock'ın
-start-transcription'da gerçekten alındığı, TTL bitince draft save'in 423 ile
-**güvenli** reddedildiği, study'nin TRANSCRIBING + assignment ile kaldığı ve bu
-çıkmazın var olduğu testle sabitlendi. Yani davranış artık kaza değil, bilinen
-ve kayıtlı bir sınır.
+Kritik tasarım kararı — **yetki kontrolü lock'tan ÖNCE**:
+
+`start-transcription` lock'ı state kontrolünden önce alır, çünkü orada yarış
+iki meşru talip arasındadır ve lock'ı kapan kazanır. Resume'da tek bir haklı
+sahip vardır; önce lock alınsaydı yetkisiz bir çağrı, reddedilmeden önceki an
+boyunca gerçek reporter'ın çalışmasını tutmuş olurdu. e2e bunu ayrıca
+doğruluyor: reddedilen `reporterB` çağrısı arkasında lock bırakmıyor.
+
+Kapsam dışı bırakılanlar (bilinçli):
+
+- Study status **değişmiyor**, yeni report version **yaratılmıyor**. Resume
+  yalnızca lock'ı geri verir
+- Başkasının lock'ı **alınmıyor**: `STUDY_LOCKED` propagate edilir. Force
+  release istisnai yol olarak Operation/Manager'da kaldı (CLAUDE.md section 18)
+- Doctor `READING` için karşılık gelen uç **eklenmedi** — dokümanda tanımlı
+  değil, uydurulmadı. `WORKFLOW_STATE_MACHINE.md` 34.1 bunu açıkça yazıyor
+
+### Testler
+
+```text
+src/reports/reports.service.spec.ts   9 birim testi
+                                      (lock+audit+event, 423 propagate,
+                                       4 yanlış state, atanmamış reporter,
+                                       kapanmış assignment, hastane scope)
+test/reports.e2e-spec.ts              15 e2e testi
+                                      (lock geri geliyor, draft save yeniden
+                                       çalışıyor, taslak korunuyor, state
+                                       değişmiyor, audit yazılıyor, idempotent,
+                                       reporterB 403 + lock bırakmıyor,
+                                       force release sonrası devam, 4 hata yolu)
+```
+
+423 branch'i birim testte stub'lanarak kanıtlandı: TRANSCRIBING bir Study'de
+yabancı lock'ın bugün meşru bir oluşma yolu yok, o yüzden e2e'de sahte bir
+senaryo kurmak yerine defansif guard doğrudan test edildi.
+
+Gates: lint PASS, typecheck PASS, unit 386 PASS, e2e 372 PASS, build PASS
 
 ---
 

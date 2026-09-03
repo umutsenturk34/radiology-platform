@@ -27,3 +27,20 @@ export class EmptyReportException extends AppException {
     });
   }
 }
+
+/**
+ * 403 — the study is somebody else's transcription work.
+ *
+ * Mirrors `NotAssignedDoctorException` on the approval side: the assignment,
+ * not the lock, is what says whose work a study is
+ * (docs/AUTH_ROLES_PERMISSIONS.md section 97).
+ */
+export class NotAssignedReporterException extends AppException {
+  constructor() {
+    super(
+      ApiErrorCode.STUDY_NOT_ASSIGNED_TO_USER,
+      'This study is assigned to another reporter.',
+      HttpStatus.FORBIDDEN,
+    );
+  }
+}

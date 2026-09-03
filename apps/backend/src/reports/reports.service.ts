@@ -21,7 +21,11 @@ import {
   NotFoundAppException,
 } from '../common/errors/app.exception';
 import { AppLogger } from '../common/logging/app-logger.service';
-import { EmptyReportException, ReportNotEditableException } from './report.errors';
+import {
+  EmptyReportException,
+  NotAssignedReporterException,
+  ReportNotEditableException,
+} from './report.errors';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 export interface StartTranscriptionResult {
@@ -151,6 +155,101 @@ export class ReportsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * `POST /studies/:id/resume-transcription`
+   * (API_CONTRACT section 51.1, WORKFLOW_STATE_MACHINE section 34.1).
+   *
+   * Recovery, not a transition. The reporter lock lives 60 seconds and is kept
+   * alive by heartbeats; a closed tab or a dropped network stops those and the
+   * lock lapses while the study stays TRANSCRIBING with its assignment intact.
+   * `start-transcription` only accepts WAITING_TRANSCRIPTION, so without this
+   * the assigned reporter could never get back to their own draft.
+   *
+   * Nothing about the work changes here: no status transition, no new report
+   * version. The only effect is that the lock exists again.
+   *
+   * Authorization is checked BEFORE the lock is taken, which is the opposite
+   * order from start-transcription. There the race is between two legitimate
+   * claimants, so whoever gets the lock wins. Here there is exactly one
+   * rightful owner, and acquiring first would let an unauthorized caller hold
+   * the real reporter's study for the moment before being refused.
+   */
+  async resumeTranscription(
+    user: AuthenticatedUser,
+    studyId: string,
+  ): Promise<StartTranscriptionResult> {
+    const study = await this.loadStudyInScope(user, studyId);
+
+    if (study.status !== StudyStatus.TRANSCRIBING) {
+      // Not a resumable situation: either transcription never started, or it
+      // is already finished. Same code the entry point uses.
+      throw new InvalidStateTransitionException(study.status, StudyStatus.TRANSCRIBING);
+    }
+
+    if (study.assignedReporterId !== user.id) {
+      throw new NotAssignedReporterException();
+    }
+
+    // The assignment row is the durable record of whose work this is
+    // (WORKFLOW_STATE_MACHINE section 74 invariant 2). A released assignment
+    // means the reporter already handed the study on, so there is nothing to
+    // resume even though the id may still be on the study row.
+    const assignment = await this.prisma.studyAssignment.findFirst({
+      where: { studyId, userId: user.id, type: 'REPORTER', releasedAt: null },
+      select: { id: true },
+    });
+
+    if (!assignment) {
+      throw new NotAssignedReporterException();
+    }
+
+    // Throws STUDY_LOCKED when somebody else holds it: this is a resume, never
+    // a takeover. Force release stays with Operation/Manager (CLAUDE.md 18).
+    const { lock } = await this.locks.acquire(studyId, {
+      userId: user.id,
+      displayName: await this.displayNameFor(user.id),
+      role: user.role,
+    });
+
+    await this.audit.record({
+      eventType: AuditEventType.TRANSCRIPTION_RESUMED,
+      actor: { userId: user.id, role: user.role },
+      hospitalId: study.hospitalId,
+      patientId: study.patientId,
+      studyId,
+      entityType: 'Study',
+      entityId: studyId,
+      metadata: { lockedAt: lock.lockedAt },
+    });
+
+    // No status change to announce, so the lock is the only news — and other
+    // clients watching this study need it (REALTIME_EVENTS section 24).
+    this.realtime.emitStudyLocked(
+      { studyId, hospitalId: study.hospitalId, actor: { userId: user.id, role: user.role } },
+      {
+        ownerUserId: lock.ownerUserId,
+        ownerDisplayName: lock.ownerDisplayName,
+        ownerRole: lock.ownerRole,
+        lockedAt: lock.lockedAt,
+        lockType: 'INTERNAL',
+      },
+    );
+
+    this.logger.info({ message: 'Transcription resumed', studyId, reporterId: user.id });
+
+    return {
+      studyId,
+      status: StudyStatus.TRANSCRIBING,
+      report: await this.getReport(user, studyId),
+      lock: {
+        ownerUserId: lock.ownerUserId,
+        ownerRole: lock.ownerRole,
+        lockedAt: lock.lockedAt,
+        heartbeatIntervalSeconds: this.locks.heartbeatSeconds,
+      },
+    };
   }
 
   /** `GET /studies/:id/report` (API_CONTRACT section 52). */
@@ -433,7 +532,14 @@ export class ReportsService {
   private async loadStudyInScope(user: AuthenticatedUser, studyId: string) {
     const study = await this.prisma.study.findUnique({
       where: { id: studyId },
-      select: { id: true, hospitalId: true, patientId: true, status: true, assignedDoctorId: true },
+      select: {
+        id: true,
+        hospitalId: true,
+        patientId: true,
+        status: true,
+        assignedDoctorId: true,
+        assignedReporterId: true,
+      },
     });
 
     if (!study) {
