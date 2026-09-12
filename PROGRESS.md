@@ -384,11 +384,10 @@ başarılı olarak tokenlı `/audio` URL'i üretti; ancak canlı `/audio` isteğ
 yok. Frontend fake audio üretmez; player'ın `0:00` kalması frontend playback
 hatası değildir. DEVOPS-004 bu kanıtla `BLOCKED_EXTERNAL` kalır.
 
-FRONTEND-015 IN_PROGRESS — reporter taslağı için yalnız own REPORTER lock
-varken çalışan 3 saniye debounce autosave eklendi. UI, gerçek `PUT` sonucu
-gelmeden başarı göstermez; hazırlık/kaydediliyor/kaydedildi/hata durumlarını
-ayırır. Canlı acceptance için geçerli reporter lock ile taslak düzenleme
-gerekiyor.
+FRONTEND-015 DONE — canlı autosave acceptance PASS: `TRANSCRIBING` study'de
+reporter own-lock ile değişen metin, manuel kaydet olmadan gerçek backend'e
+yazıldı; `savedAt` gösterildi. Yenileme sonrası aynı metin ve v1 `DRAFT`
+geri geldi, reporter lock/heartbeat korundu.
 ```
 
 ## Current Frontend Task
@@ -397,14 +396,13 @@ gerekiyor.
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
 FRONTEND-014 — Audio Player (BLOCKED_EXTERNAL: DEVOPS-004)
-FRONTEND-015 — Report Autosave
+FRONTEND-015 — Report Autosave (DONE)
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-015: BACKEND-028 ve FRONTEND-013 DONE olduğu için report autosave
-hazırlığı dependency açısından başlanabilir. FRONTEND-014, DEVOPS-004 gerçek
-object storage sağladıktan sonra yeniden canlı acceptance ister.
+FRONTEND-016: FRONTEND-015 ve BACKEND-029 DONE. Gerçek submit endpointiyle
+backend `WAITING_APPROVAL` sonucunu doğrula; frontend state üretme.
 
 ## Recently Completed Frontend Tasks
 
@@ -418,6 +416,7 @@ FRONTEND-009 — Browser Audio Recorder (commit: 155c475; canlı acceptance PASS
 FRONTEND-011 — Complete Reading Action (commit: 78dff46, 061c6c1; canlı acceptance PASS)
 FRONTEND-012 — Reporter Queue (commit: a1fbda1; canlı acceptance PASS)
 FRONTEND-013 — Reporter Workspace (commit: d44a2d5, 8e83841; canlı acceptance PASS)
+FRONTEND-015 — Report Autosave (commit: cb46955; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -455,9 +454,8 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-015: autosave için mevcut report draft API/hook'larını incele ve
-debounce, saving/saved/error state'lerini yalnız gerçek backend save sonucuyla
-uygula. FRONTEND-014, DEVOPS-004 tamamlanınca yeniden canlı doğrulama bekler.
+FRONTEND-016: submit-report akışını gerçek endpoint ile uygula. Backend
+`WAITING_APPROVAL` yanıtı ve lock release canlı doğrulanmadan task DONE olmaz.
 ```
 
 ## Frontend Observation

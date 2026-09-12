@@ -1971,7 +1971,7 @@ gerçek uploaded dictation oynuyor.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-013, BACKEND-028
 
 ### Acceptance
@@ -1981,6 +1981,14 @@ gerçek uploaded dictation oynuyor.
 - saved
 - error
 - no false success
+
+### Canlı acceptance
+
+- `TRANSCRIBING` study üzerinde reporter own-lock ile metin değiştirildi.
+- Manuel kaydet kullanılmadan debounce autosave gerçek backend'e yazdı ve
+  backend `savedAt` zamanı gösterildi.
+- Yenileme sonrası aynı metin ve v1 `DRAFT` geri geldi; reporter lock ile
+  heartbeat korunmaya devam etti.
 
 ---
 
