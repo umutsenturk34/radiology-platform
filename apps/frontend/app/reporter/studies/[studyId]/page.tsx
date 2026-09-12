@@ -19,6 +19,7 @@ import {
   resumeTranscription,
   saveStudyReportDraft,
   startTranscription,
+  submitStudyReport,
 } from "@/features/studies/api";
 import { ApiClientError } from "@/lib/api";
 
@@ -32,7 +33,7 @@ function formatDuration(value: number | null) {
   return `${Math.floor(totalSeconds / 60)} dk ${totalSeconds % 60} sn`;
 }
 
-function actionErrorMessage(error: unknown, action: "start" | "resume" | "save" | "playback" | "versions") {
+function actionErrorMessage(error: unknown, action: "start" | "resume" | "save" | "submit" | "playback" | "versions") {
   if (!(error instanceof ApiClientError)) return "İşlem tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin.";
   if (action === "versions" && error.status === 404) {
     return "Rapor sürüm geçmişi backend tarafından henüz yayınlanmadı (GET /studies/:id/report/versions, HTTP 404). Aktif sürüm bilgisi gerçek rapor endpointinden gösterilmeye devam ediyor.";
@@ -45,6 +46,7 @@ function actionErrorMessage(error: unknown, action: "start" | "resume" | "save" 
   if (error.code === "INVALID_STATE_TRANSITION") return action === "start" ? "Tetkik artık yazım başlatmaya uygun durumda değil." : action === "resume" ? "Tetkik artık yazıma devam etmeye uygun durumda değil." : "Tetkikin güncel durumu bu işleme izin vermiyor.";
   if (error.code === "STUDY_NOT_ASSIGNED_TO_USER") return "Bu tetkik size atanmadığı için işlem yapılamaz.";
   if (error.code === "FORBIDDEN" || error.code === "HOSPITAL_ACCESS_DENIED") return "Bu tetkik için yetkiniz yok.";
+  if (action === "submit" && error.status === 422) return "Boş rapor hekim onayına gönderilemez.";
   return `Backend işlemi reddetti (${error.code}). ${error.message}`;
 }
 
@@ -114,6 +116,15 @@ export default function ReporterStudyWorkspacePage() {
       setAutosaveState("error");
     },
   });
+  const submitReport = useMutation({
+    mutationFn: () => submitStudyReport(studyId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["study", studyId] });
+      void queryClient.invalidateQueries({ queryKey: ["study", studyId, "report"] });
+      void queryClient.invalidateQueries({ queryKey: ["study", studyId, "report", "versions"] });
+      void queryClient.invalidateQueries({ queryKey: ["studies", "reporter"] });
+    },
+  });
 
   useEffect(() => {
     const currentVersion = report.data?.currentVersion;
@@ -169,6 +180,8 @@ export default function ReporterStudyWorkspacePage() {
   const isAssignedReporter = Boolean(isReporter && currentUser && study.assignment.reporter?.id === currentUser.id);
   const canResume = study.status === "TRANSCRIBING" && isAssignedReporter && !study.lock.locked;
   const canSave = canAutosave;
+  const isLatestDraftSaved = draftContent === lastSavedContent && !saveDraft.isPending && autosaveState !== "scheduled" && autosaveState !== "saving";
+  const canSubmit = canSave && isLatestDraftSaved && draftContent.trim().length > 0;
 
   function handleDraftChange(content: string) {
     setDraftContent(content);
@@ -189,6 +202,8 @@ export default function ReporterStudyWorkspacePage() {
         <header className="rounded-lg border border-slate-300 bg-white p-4 shadow-sm">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-800">{study.category} · {study.status}</p><h1 className="mt-1 text-2xl font-semibold">{study.study.description ?? "Tetkik tanımı yok"}</h1><p className="mt-1 font-mono text-sm text-slate-600">Accession: {study.accessionNumber}</p></div>{study.status === "WAITING_TRANSCRIPTION" ? <button className="rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canStart || start.isPending} onClick={() => start.mutate()} type="button">{start.isPending ? "Yazım başlatılıyor…" : "Yazımı başlat"}</button> : null}</div>
           {start.error ? <p className="mt-3 text-sm text-red-800" role="alert">{actionErrorMessage(start.error, "start")}</p> : null}
+          {submitReport.data ? <p className="mt-3 text-sm text-emerald-800" role="status">Rapor backend tarafından hekim onay kuyruğuna gönderildi.</p> : null}
+          {submitReport.error ? <p className="mt-3 text-sm text-red-800" role="alert">{actionErrorMessage(submitReport.error, "submit")}</p> : null}
           {study.status === "WAITING_TRANSCRIPTION" && !isReporter ? <p className="mt-3 text-sm text-slate-600">Aktif raportör oturumu doğrulanmadığı için yazım başlatılamaz.</p> : null}
         </header>
 
@@ -201,7 +216,7 @@ export default function ReporterStudyWorkspacePage() {
 
         <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Dikte ve playback</h2>{dictations.isLoading ? <p className="mt-2 text-sm">Dikteler yükleniyor…</p> : null}{dictations.isError ? <p className="mt-2 text-sm text-red-800" role="alert">Dikte kayıtları alınamadı.</p> : null}{completedDictations.length === 0 && !dictations.isLoading ? <p className="mt-2 text-sm text-slate-600">Backend tamamlanmış dikte döndürmedi.</p> : null}{completedDictations.length ? <ul className="mt-3 space-y-3 text-sm">{completedDictations.map((dictation) => <li className="rounded border border-slate-200 p-3" key={dictation.id}><p className="font-medium">{dictation.doctor.displayName} · COMPLETED</p><p className="mt-1 text-slate-600">Süre: {formatDuration(dictation.durationMs)} · Tamamlanma: {formatDate(dictation.completedAt)}</p><button className="mt-2 rounded-md border border-sky-700 px-3 py-1.5 text-xs font-semibold text-sky-800 disabled:opacity-50" disabled={playback.isPending} onClick={() => playback.mutate(dictation.id)} type="button">{playback.isPending ? "Ses bağlantısı alınıyor…" : "Dikte sesini yükle"}</button></li>)}</ul> : null}{playback.error ? <p className="mt-3 text-sm text-red-800" role="alert">{actionErrorMessage(playback.error, "playback")}</p> : null}{playback.data ? <audio className="mt-3 w-full" controls src={playback.data.url}>Tarayıcınız ses oynatmayı desteklemiyor.</audio> : null}</section>
 
-        <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Rapor taslağı ve sürümler</h2>{study.status === "WAITING_TRANSCRIPTION" ? <p className="mt-2 text-sm text-slate-600">Taslak, backend yazımı başlatıp REPORTER lock oluşturduktan sonra kullanılabilir.</p> : null}{report.isLoading ? <p className="mt-2 text-sm">Rapor yükleniyor…</p> : null}{report.isError ? <p className="mt-2 text-sm text-red-800" role="alert">Rapor bilgisi alınamadı.</p> : null}{report.data ? <p className="mt-2 text-sm text-slate-600">Rapor: {report.data.status} · Aktif sürüm: {report.data.currentVersion ? `v${report.data.currentVersion.versionNumber} (${report.data.currentVersion.status})` : "yok"}</p> : null}{study.status === "TRANSCRIBING" ? <><textarea aria-label="Rapor taslağı" className="mt-3 min-h-48 w-full rounded-md border border-slate-300 p-3 text-sm" disabled={!canSave || saveDraft.isPending} onChange={(event) => handleDraftChange(event.target.value)} value={draftContent} /><button className="mt-3 rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canSave || saveDraft.isPending} onClick={() => saveDraft.mutate(draftContent)} type="button">{saveDraft.isPending ? "Kaydediliyor…" : "Taslağı kaydet"}</button>{!canSave ? <p className="mt-2 text-sm text-slate-600">Taslak kaydı yalnız TRANSCRIBING durumunda size ait REPORTER lock ile yapılabilir.</p> : null}{autosaveState === "scheduled" ? <p className="mt-2 text-sm text-slate-600">Taslak değişti; otomatik kayıt hazırlanıyor.</p> : null}{autosaveState === "saving" ? <p className="mt-2 text-sm text-slate-600" role="status">Taslak kaydediliyor…</p> : null}{autosaveState === "saved" && saveDraft.data ? <p className="mt-2 text-sm text-emerald-800" role="status">Taslak backend tarafından {formatDate(saveDraft.data.savedAt)} tarihinde kaydedildi.</p> : null}{autosaveState === "error" && saveDraft.error ? <p className="mt-2 text-sm text-red-800" role="alert">{actionErrorMessage(saveDraft.error, "save")}</p> : null}</> : null}{reportVersions.data?.length ? <ul className="mt-4 space-y-2 text-sm">{reportVersions.data.map((version) => <li className="rounded border border-slate-200 p-2" key={version.id}>v{version.versionNumber} · {version.status} · {version.source} · {version.createdBy.displayName} · {formatDate(version.createdAt)}</li>)}</ul> : null}{reportVersions.isError ? <p className="mt-2 text-sm text-red-800" role="alert">{actionErrorMessage(reportVersions.error, "versions")}</p> : null}</section>
+        <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Rapor taslağı ve sürümler</h2>{study.status === "WAITING_TRANSCRIPTION" ? <p className="mt-2 text-sm text-slate-600">Taslak, backend yazımı başlatıp REPORTER lock oluşturduktan sonra kullanılabilir.</p> : null}{report.isLoading ? <p className="mt-2 text-sm">Rapor yükleniyor…</p> : null}{report.isError ? <p className="mt-2 text-sm text-red-800" role="alert">Rapor bilgisi alınamadı.</p> : null}{report.data ? <p className="mt-2 text-sm text-slate-600">Rapor: {report.data.status} · Aktif sürüm: {report.data.currentVersion ? `v${report.data.currentVersion.versionNumber} (${report.data.currentVersion.status})` : "yok"}</p> : null}{study.status === "TRANSCRIBING" ? <><textarea aria-label="Rapor taslağı" className="mt-3 min-h-48 w-full rounded-md border border-slate-300 p-3 text-sm" disabled={!canSave || saveDraft.isPending || submitReport.isPending} onChange={(event) => handleDraftChange(event.target.value)} value={draftContent} /><div className="mt-3 flex flex-wrap gap-3"><button className="rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canSave || saveDraft.isPending || submitReport.isPending} onClick={() => saveDraft.mutate(draftContent)} type="button">{saveDraft.isPending ? "Kaydediliyor…" : "Taslağı kaydet"}</button><button className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canSubmit || submitReport.isPending} onClick={() => submitReport.mutate()} type="button">{submitReport.isPending ? "Hekim onayına gönderiliyor…" : "Hekim Onayına Gönder"}</button></div>{!canSave ? <p className="mt-2 text-sm text-slate-600">Taslak kaydı ve rapor gönderimi yalnız TRANSCRIBING durumunda size ait REPORTER lock ile yapılabilir.</p> : null}{canSave && draftContent.trim().length === 0 ? <p className="mt-2 text-sm text-slate-600">Boş rapor hekim onayına gönderilemez.</p> : null}{canSave && draftContent !== lastSavedContent ? <p className="mt-2 text-sm text-slate-600">Hekim onayına göndermeden önce son taslak kaydının tamamlanması beklenir.</p> : null}{autosaveState === "scheduled" ? <p className="mt-2 text-sm text-slate-600">Taslak değişti; otomatik kayıt hazırlanıyor.</p> : null}{autosaveState === "saving" ? <p className="mt-2 text-sm text-slate-600" role="status">Taslak kaydediliyor…</p> : null}{autosaveState === "saved" && saveDraft.data ? <p className="mt-2 text-sm text-emerald-800" role="status">Taslak backend tarafından {formatDate(saveDraft.data.savedAt)} tarihinde kaydedildi.</p> : null}{autosaveState === "error" && saveDraft.error ? <p className="mt-2 text-sm text-red-800" role="alert">{actionErrorMessage(saveDraft.error, "save")}</p> : null}</> : null}{reportVersions.data?.length ? <ul className="mt-4 space-y-2 text-sm">{reportVersions.data.map((version) => <li className="rounded border border-slate-200 p-2" key={version.id}>v{version.versionNumber} · {version.status} · {version.source} · {formatDate(version.createdAt)}</li>)}</ul> : null}{reportVersions.isError ? <p className="mt-2 text-sm text-red-800" role="alert">{actionErrorMessage(reportVersions.error, "versions")}</p> : null}</section>
 
         <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Information</h2>{information.isLoading ? <p className="mt-2 text-sm">Notlar yükleniyor…</p> : null}{information.isError ? <p className="mt-2 text-sm text-red-800" role="alert">Information notları alınamadı.</p> : null}{information.data?.length === 0 ? <p className="mt-2 text-sm text-slate-600">Bu tetkik için Information notu yok.</p> : null}{information.data?.length ? <ul className="mt-3 space-y-2 text-sm">{information.data.map((note) => <li className="rounded border border-slate-200 p-2" key={note.id}><p>{note.content}</p><p className="mt-1 text-xs text-slate-600">{note.author.displayName} · {formatDate(note.updatedAt)} · v{note.versionCount}</p></li>)}</ul> : null}</section>
       </div>

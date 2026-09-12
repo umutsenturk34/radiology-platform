@@ -2043,7 +2043,7 @@ submit sonrası draft-> 409, içerik değişmedi (version 1 COMPLETED)
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-015, BACKEND-029
 
 ### Acceptance

@@ -6,6 +6,7 @@
  */
 
 import type { ReportSource, ReportStatus } from '../enums/report';
+import type { StudyStatus } from '../enums/study';
 
 export interface ReportAuthorSummary {
   id: string;
@@ -40,4 +41,16 @@ export interface SaveReportDraftResult {
   versionId: string;
   status: ReportStatus;
   savedAt: string;
+}
+
+/** `POST /studies/:id/submit-report`. */
+export interface SubmitReportResult {
+  studyId: string;
+  status: StudyStatus;
+  report: {
+    id: string;
+    currentVersionId: string | null;
+    status: ReportStatus;
+  };
+  lockReleased: boolean;
 }

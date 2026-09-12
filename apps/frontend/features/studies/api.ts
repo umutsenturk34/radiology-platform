@@ -8,6 +8,7 @@ import {
   type ReportDto,
   type ReportVersionDto,
   type SaveReportDraftResult,
+  type SubmitReportResult,
   type StudyLockInfo,
   type StudyPacsSeries,
   type StudyPacsViewer,
@@ -132,6 +133,10 @@ export function listStudyReportVersions(studyId: string) {
 
 export function saveStudyReportDraft(studyId: string, content: string) {
   return getApiClient().put<SaveReportDraftResult>(`/studies/${studyId}/report/draft`, { content });
+}
+
+export function submitStudyReport(studyId: string) {
+  return getApiClient().post<SubmitReportResult>(`/studies/${studyId}/submit-report`);
 }
 
 export function startReading(studyId: string) {
