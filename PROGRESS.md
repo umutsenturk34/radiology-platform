@@ -378,9 +378,11 @@ FRONTEND-013 DONE — canlı browser acceptance PASS: start-transcription ile
 heartbeat ile lock korunması, report versions 200, draft save 200 ve yenileme
 sonrası aynı draft metni ile v1 DRAFT gerçek backend üzerinden doğrulandı.
 
-FRONTEND-014 IN_PROGRESS — gerçek dictation playback için mevcut endpoint ve
-tarayıcı player davranışı incelenecek. DEVOPS-004 object storage kalıcılığı
-blocker'ı korunur; unavailable/0:00 audio frontend hatası varsayılmaz.
+FRONTEND-014 BLOCKED_EXTERNAL — gerçek `GET /dictations/:id/playback`
+başarılı olarak tokenlı `/audio` URL'i üretti; ancak canlı `/audio` isteği
+`NOT_FOUND` / `Object not found.` döndü. Audio binary backend object storage'da
+yok. Frontend fake audio üretmez; player'ın `0:00` kalması frontend playback
+hatası değildir. DEVOPS-004 bu kanıtla `BLOCKED_EXTERNAL` kalır.
 ```
 
 ## Current Frontend Task
@@ -388,14 +390,14 @@ blocker'ı korunur; unavailable/0:00 audio frontend hatası varsayılmaz.
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-014 — Audio Player
+FRONTEND-014 — Audio Player (BLOCKED_EXTERNAL: DEVOPS-004)
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-014: gerçek uploaded dictation için play, pause, seek ve duration
-doğrulaması; unavailable audio response'u backend/object-storage kanıtı olmadan
-frontend bug olarak sınıflandırılmaz.
+FRONTEND-015: BACKEND-028 ve FRONTEND-013 DONE olduğu için report autosave
+hazırlığı dependency açısından başlanabilir. FRONTEND-014, DEVOPS-004 gerçek
+object storage sağladıktan sonra yeniden canlı acceptance ister.
 
 ## Recently Completed Frontend Tasks
 
@@ -424,9 +426,10 @@ DISCOVERED-005 açık: READING durumunda kaybolan lock için canonical güvenli
 reacquire endpointi yok. `start-reading` yalnız UNREAD içindir; heartbeat için
 gerekli `sessionId` shared/start-reading cevabında bulunmaz.
 
-DEVOPS-004 açık: object storage kalıcılığı çözülmedi. Audio playback sırasında
-backend unavailable response'u veya 0:00 metadata görülebilir; gerçek response
-doğrulanmadan frontend playback bug'ı varsayılmaz.
+DEVOPS-004 BLOCKED_EXTERNAL: FRONTEND-014 canlı acceptance'ta tokenlı `/audio`
+isteği `NOT_FOUND` / `Object not found.` döndü. Dictation binary'si backend
+object storage'da yok; gerçek audio olmadan play/pause/seek/duration acceptance
+yapılamaz. Frontend fake audio üretmez.
 ```
 
 ## Frontend Known Issues
@@ -445,9 +448,9 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-014: gerçek COMPLETED/uploaded dictation playback endpointini incele.
-Play, pause, seek ve duration gerçek tarayıcı audio state'i ile doğrulanmalı;
-object storage unavailable/0:00 sonucu backend response'u ile ayrıştırılmalı.
+FRONTEND-015: autosave için mevcut report draft API/hook'larını incele ve
+debounce, saving/saved/error state'lerini yalnız gerçek backend save sonucuyla
+uygula. FRONTEND-014, DEVOPS-004 tamamlanınca yeniden canlı doğrulama bekler.
 ```
 
 ## Frontend Observation

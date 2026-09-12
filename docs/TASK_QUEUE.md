@@ -1941,7 +1941,7 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** BLOCKED_EXTERNAL
 **Depends On:** FRONTEND-013, BACKEND-023
 
 ### Özellikler
@@ -1954,6 +1954,16 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
 ### Acceptance
 
 gerçek uploaded dictation oynuyor.
+
+### Canlı gözlem / blocker
+
+- Gerçek `GET /dictations/:id/playback` başarılı olup tokenlı `/audio` URL'i
+  döndü.
+- Bu URL'in canlı isteği `NOT_FOUND` / `Object not found.` döndü; ses nesnesi
+  backend object storage'da mevcut değil.
+- Frontend ses veya business state uydurmaz. Native player bu durumda `0:00`
+  olarak kalabilir; gerçek audio playback acceptance, DEVOPS-004 tamamlanana
+  kadar doğrulanamaz.
 
 ---
 
@@ -3200,12 +3210,18 @@ lock + BullMQ remote Redis üzerinde çalışıyor.
 
 **Owner:** DEVOPS  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** BLOCKED_EXTERNAL
 **Depends On:** BACKEND-022
 
 ### Acceptance
 
 remote audio upload/playback.
+
+### Canlı kanıt
+
+FRONTEND-014 acceptance sırasında tokenlı `/audio` isteği `NOT_FOUND` /
+`Object not found.` döndü. Mevcut deploy'da dictation binary'si object
+storage'da bulunmadığından remote playback kabulü yapılamıyor.
 
 ---
 
