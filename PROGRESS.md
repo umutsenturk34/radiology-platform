@@ -388,6 +388,10 @@ FRONTEND-015 DONE — canlı autosave acceptance PASS: `TRANSCRIBING` study'de
 reporter own-lock ile değişen metin, manuel kaydet olmadan gerçek backend'e
 yazıldı; `savedAt` gösterildi. Yenileme sonrası aynı metin ve v1 `DRAFT`
 geri geldi, reporter lock/heartbeat korundu.
+
+FRONTEND-016 DONE — canlı acceptance PASS: reporter own-lock ve boş olmayan
+v1 `DRAFT` ile gerçek submit sonrası backend `WAITING_APPROVAL` döndü, lock
+bırakıldı ve study reporter yazım kuyruğundan çıktı.
 ```
 
 ## Current Frontend Task
@@ -397,13 +401,13 @@ FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
 FRONTEND-014 — Audio Player (BLOCKED_EXTERNAL: DEVOPS-004)
 FRONTEND-015 — Report Autosave (DONE)
-FRONTEND-016 — Submit Report
+FRONTEND-016 — Submit Report (DONE)
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-016: FRONTEND-015 ve BACKEND-029 DONE. Gerçek submit endpointiyle
-backend `WAITING_APPROVAL` sonucunu doğrula; frontend state üretme.
+FRONTEND-017: Doctor Approval Queue için gerçek `WAITING_APPROVAL` study
+kuyruğunu kullan.
 
 ## Recently Completed Frontend Tasks
 
@@ -418,6 +422,7 @@ FRONTEND-011 — Complete Reading Action (commit: 78dff46, 061c6c1; canlı accep
 FRONTEND-012 — Reporter Queue (commit: a1fbda1; canlı acceptance PASS)
 FRONTEND-013 — Reporter Workspace (commit: d44a2d5, 8e83841; canlı acceptance PASS)
 FRONTEND-015 — Report Autosave (commit: cb46955; canlı acceptance PASS)
+FRONTEND-016 — Submit Report (commit: de50258; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -455,8 +460,8 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-016: submit-report akışını gerçek endpoint ile uygula. Backend
-`WAITING_APPROVAL` yanıtı ve lock release canlı doğrulanmadan task DONE olmaz.
+FRONTEND-017: gerçek `WAITING_APPROVAL` study ile doctor approval queue
+acceptance'ına geç.
 ```
 
 ## Frontend Observation

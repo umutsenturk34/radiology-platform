@@ -2043,12 +2043,19 @@ submit sonrası draft-> 409, içerik değişmedi (version 1 COMPLETED)
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-015, BACKEND-029
 
 ### Acceptance
 
 submit sonrası Study approval queue'a gidiyor.
+
+### Canlı acceptance
+
+- `TRANSCRIBING`, reporter own-lock ve boş olmayan v1 `DRAFT` ile gerçek
+  `POST /studies/:id/submit-report` çağrıldı.
+- Backend refetch sonucu `WAITING_APPROVAL`, reporter lock release ve başarı
+  mesajı doğrulandı; reporter `WAITING_TRANSCRIPTION` kuyruğu 0 kayıt döndü.
 
 ---
 
