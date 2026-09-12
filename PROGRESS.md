@@ -397,6 +397,7 @@ FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
 FRONTEND-014 — Audio Player (BLOCKED_EXTERNAL: DEVOPS-004)
 FRONTEND-015 — Report Autosave (DONE)
+FRONTEND-016 — Submit Report
 ```
 
 ## Next Recommended Frontend Task
