@@ -59,7 +59,9 @@ export default function ReporterStudyWorkspacePage() {
   const [autosaveState, setAutosaveState] = useState<"idle" | "scheduled" | "saving" | "saved" | "error">("idle");
   const [heartbeatIntervalSeconds, setHeartbeatIntervalSeconds] = useState<number | null>(null);
   const [heartbeatFailed, setHeartbeatFailed] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
   const loadedVersionId = useRef<string | null>(null);
+  const resumeInFlight = useRef(false);
   const heartbeatStorageKey = `reporter-study-heartbeat:${studyId}`;
   const detail = useQuery({ queryKey: ["study", studyId], queryFn: () => getStudyDetail(studyId) });
   const dictations = useQuery({ queryKey: ["study", studyId, "dictations"], queryFn: () => listStudyDictations(studyId), retry: false });
@@ -82,6 +84,7 @@ export default function ReporterStudyWorkspacePage() {
   });
   const resume = useMutation({
     mutationFn: () => resumeTranscription(studyId),
+    onMutate: () => setIsResuming(true),
     onSuccess: (result) => {
       setHeartbeatIntervalSeconds(result.lock.heartbeatIntervalSeconds);
       window.sessionStorage.setItem(heartbeatStorageKey, String(result.lock.heartbeatIntervalSeconds));
@@ -89,6 +92,10 @@ export default function ReporterStudyWorkspacePage() {
       void queryClient.invalidateQueries({ queryKey: ["study", studyId] });
       void queryClient.invalidateQueries({ queryKey: ["study", studyId, "report"] });
       void queryClient.invalidateQueries({ queryKey: ["study", studyId, "report", "versions"] });
+    },
+    onSettled: () => {
+      resumeInFlight.current = false;
+      setIsResuming(false);
     },
   });
   const playback = useMutation({ mutationFn: getDictationPlayback });
@@ -159,12 +166,19 @@ export default function ReporterStudyWorkspacePage() {
   const study = detail.data;
   const completedDictations = dictations.data?.filter((dictation) => dictation.status === "COMPLETED") ?? [];
   const canStart = study.status === "WAITING_TRANSCRIPTION" && isReporter;
-  const canResume = study.status === "TRANSCRIBING" && isReporter && !study.lock.locked;
+  const isAssignedReporter = Boolean(isReporter && currentUser && study.assignment.reporter?.id === currentUser.id);
+  const canResume = study.status === "TRANSCRIBING" && isAssignedReporter && !study.lock.locked;
   const canSave = canAutosave;
 
   function handleDraftChange(content: string) {
     setDraftContent(content);
     setFailedContent(null);
+  }
+
+  function handleResume() {
+    if (resumeInFlight.current) return;
+    resumeInFlight.current = true;
+    resume.mutate();
   }
 
   return (
@@ -183,7 +197,7 @@ export default function ReporterStudyWorkspacePage() {
           <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Klinik bilgi</h2>{study.clinicalData ? <dl className="mt-3 space-y-2 text-sm"><div><dt className="text-slate-500">Ön tanı</dt><dd>{study.clinicalData.preDiagnosis ?? "Gönderilmedi"}</dd></div><div><dt className="text-slate-500">İstem nedeni</dt><dd>{study.clinicalData.requestReason ?? "Gönderilmedi"}</dd></div><div><dt className="text-slate-500">Hasta şikâyeti</dt><dd>{study.clinicalData.patientComplaint ?? "Gönderilmedi"}</dd></div><div><dt className="text-slate-500">İsteyen hekim / bölüm</dt><dd>{study.clinicalData.requestingPhysician ?? "Gönderilmedi"} · {study.clinicalData.department ?? "Gönderilmedi"}</dd></div></dl> : <p className="mt-3 text-sm text-slate-600">Hastane klinik bilgi göndermedi.</p>}</section>
         </section>
 
-        <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Raportör kilidi</h2><p className="mt-2 text-sm">{study.lock.locked ? `Kilitli · ${study.lock.ownerDisplayName ?? "Bilinmeyen sahip"} (${study.lock.ownerRole ?? "—"}) · ${formatDate(study.lock.lockedAt)}` : "Kilit yok"}</p>{canResume ? <button className="mt-3 rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={resume.isPending} onClick={() => resume.mutate()} type="button">{resume.isPending ? "Yazıma devam ediliyor…" : "Yazıma devam et"}</button> : null}{resume.error ? <p className="mt-2 text-sm text-red-800" role="alert">{actionErrorMessage(resume.error, "resume")}</p> : null}{heartbeatFailed ? <p className="mt-2 text-sm text-red-800" role="alert">Kilit doğrulanamadığı için taslak kaydı kapatıldı. Güncel kilidi backendden yeniden alın.</p> : null}{study.status === "TRANSCRIBING" && !ownsReporterLock && !heartbeatFailed ? <p className="mt-2 text-sm text-red-800" role="alert">Bu tetkik üzerinde düzenleme için size ait geçerli REPORTER lock gerekir.</p> : null}</section>
+        <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Raportör kilidi</h2><p className="mt-2 text-sm">{study.lock.locked ? `Kilitli · ${study.lock.ownerDisplayName ?? "Bilinmeyen sahip"} (${study.lock.ownerRole ?? "—"}) · ${formatDate(study.lock.lockedAt)}` : "Kilit yok"}</p>{canResume ? <button className="mt-3 rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={isResuming} onClick={handleResume} type="button">{isResuming ? "Yazıma devam ediliyor…" : "Yazıma devam et"}</button> : null}{resume.error ? <p className="mt-2 text-sm text-red-800" role="alert">{actionErrorMessage(resume.error, "resume")}</p> : null}{heartbeatFailed ? <p className="mt-2 text-sm text-red-800" role="alert">Kilit doğrulanamadığı için taslak kaydı kapatıldı. Güncel kilidi backendden yeniden alın.</p> : null}{study.status === "TRANSCRIBING" && !isAssignedReporter ? <p className="mt-2 text-sm text-red-800" role="alert">Bu tetkik size raportör olarak atanmadığı için yazıma devam edilemez.</p> : null}{study.status === "TRANSCRIBING" && study.lock.locked && !ownsReporterLock ? <p className="mt-2 text-sm text-red-800" role="alert">Bu tetkik başka bir kullanıcı tarafından kilitli; yazıma devam edilemez.</p> : null}{study.status === "TRANSCRIBING" && !ownsReporterLock && !heartbeatFailed ? <p className="mt-2 text-sm text-red-800" role="alert">Bu tetkik üzerinde düzenleme için size ait geçerli REPORTER lock gerekir.</p> : null}</section>
 
         <section className="rounded-lg border border-slate-300 bg-white p-4"><h2 className="font-semibold">Dikte ve playback</h2>{dictations.isLoading ? <p className="mt-2 text-sm">Dikteler yükleniyor…</p> : null}{dictations.isError ? <p className="mt-2 text-sm text-red-800" role="alert">Dikte kayıtları alınamadı.</p> : null}{completedDictations.length === 0 && !dictations.isLoading ? <p className="mt-2 text-sm text-slate-600">Backend tamamlanmış dikte döndürmedi.</p> : null}{completedDictations.length ? <ul className="mt-3 space-y-3 text-sm">{completedDictations.map((dictation) => <li className="rounded border border-slate-200 p-3" key={dictation.id}><p className="font-medium">{dictation.doctor.displayName} · COMPLETED</p><p className="mt-1 text-slate-600">Süre: {formatDuration(dictation.durationMs)} · Tamamlanma: {formatDate(dictation.completedAt)}</p><button className="mt-2 rounded-md border border-sky-700 px-3 py-1.5 text-xs font-semibold text-sky-800 disabled:opacity-50" disabled={playback.isPending} onClick={() => playback.mutate(dictation.id)} type="button">{playback.isPending ? "Ses bağlantısı alınıyor…" : "Dikte sesini yükle"}</button></li>)}</ul> : null}{playback.error ? <p className="mt-3 text-sm text-red-800" role="alert">{actionErrorMessage(playback.error, "playback")}</p> : null}{playback.data ? <audio className="mt-3 w-full" controls src={playback.data.url}>Tarayıcınız ses oynatmayı desteklemiyor.</audio> : null}</section>
 
