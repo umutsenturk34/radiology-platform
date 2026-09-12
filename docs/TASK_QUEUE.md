@@ -704,7 +704,7 @@ Veritabanında henüz Study kaydı yok (HL7 BACKEND-011'de geliyor), bu yüzden
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 
 **Depends On:** FRONTEND-001, SHARED-002
 
@@ -1900,7 +1900,7 @@ WAITING_TRANSCRIPTION Study'leri gösteriyor.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** IN_PROGRESS
+**Status:** DONE
 **Depends On:** FRONTEND-012, BACKEND-028
 
 ### Aynı Ekranda
@@ -1930,8 +1930,10 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
   lock TTL sonrası kaybolduğunda gerçek `POST /studies/:id/resume-transcription`
   çağrısı kullanılır. `AcquiredLockInfo.heartbeatIntervalSeconds` yalnız
   backend yanıtından alınır; heartbeat başarısız olursa taslak kaydı fail-closed
-  kapatılır. Canlı resume acceptance henüz tamamlanmadı.
-- Canlı acceptance henüz tamamlanmadığı için görev `IN_PROGRESS` kalır.
+  kapatılır.
+- Canlı acceptance PASS: start/resume-transcription, own reporter lock,
+  interval tabanlı heartbeat, report history 200, draft save 200 ve yenileme
+  sonrası aynı draft/v1 DRAFT verisi gerçek backend ile doğrulandı.
 
 ---
 
@@ -1939,7 +1941,7 @@ sağlık ekibinin ana gereksinimi olan “aynı ekrandan ses + rapor” sağlan�
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-013, BACKEND-023
 
 ### Özellikler

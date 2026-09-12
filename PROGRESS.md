@@ -373,17 +373,14 @@ login, gerçek `GET /studies?pool=WAITING_TRANSCRIPTION` çağrısı ve
 `FE011-TEST-1788206210` kaydının doğru `WAITING_TRANSCRIPTION` state'i
 doğrulandı; fake veri/state kullanılmadı.
 
-FRONTEND-013 IN_PROGRESS — reporter workspace gerçek study detail,
-start-transcription, lock, dictation playback ve report draft/version
-endpointlerini kullanacak. Uygulama commit'i `d44a2d5`; canlı acceptance
-bekleniyor.
+FRONTEND-013 DONE — canlı browser acceptance PASS: start-transcription ile
+`TRANSCRIBING`, own reporter lock, resume-transcription lock recovery,
+heartbeat ile lock korunması, report versions 200, draft save 200 ve yenileme
+sonrası aynı draft metni ile v1 DRAFT gerçek backend üzerinden doğrulandı.
 
-FRONTEND-013 handoff doğrulaması: backend `83379ac` sonrasında canonical
-`GET /studies/:id/report/versions` Railway'de 200 dönüyor; workspace gerçek
-DRAFT v1 history satırını gösteriyor. `resume-transcription` + canonical
-heartbeat frontend implementasyonu `8e83841` ile hazır; reporter lock recovery
-ve draft-save UI'ı backend yanıtı dışında state üretmiyor. Son canlı resume
-acceptance tamamlanmadan FRONTEND-013 DONE değil.
+FRONTEND-014 IN_PROGRESS — gerçek dictation playback için mevcut endpoint ve
+tarayıcı player davranışı incelenecek. DEVOPS-004 object storage kalıcılığı
+blocker'ı korunur; unavailable/0:00 audio frontend hatası varsayılmaz.
 ```
 
 ## Current Frontend Task
@@ -391,13 +388,14 @@ acceptance tamamlanmadan FRONTEND-013 DONE değil.
 ```text
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
-FRONTEND-013 — Reporter Workspace
+FRONTEND-014 — Audio Player
 ```
 
 ## Next Recommended Frontend Task
 
-FRONTEND-013: gerçek study detail + start-transcription reporter lock +
-dictation playback + canonical ReportDto/ReportVersionDto gösterimi.
+FRONTEND-014: gerçek uploaded dictation için play, pause, seek ve duration
+doğrulaması; unavailable audio response'u backend/object-storage kanıtı olmadan
+frontend bug olarak sınıflandırılmaz.
 
 ## Recently Completed Frontend Tasks
 
@@ -410,6 +408,7 @@ FRONTEND-007 — Doctor Study Workspace (commit: 756cd16; canlı acceptance PASS
 FRONTEND-009 — Browser Audio Recorder (commit: 155c475; canlı acceptance PASS)
 FRONTEND-011 — Complete Reading Action (commit: 78dff46, 061c6c1; canlı acceptance PASS)
 FRONTEND-012 — Reporter Queue (commit: a1fbda1; canlı acceptance PASS)
+FRONTEND-013 — Reporter Workspace (commit: d44a2d5, 8e83841; canlı acceptance PASS)
 Frontend API same-origin geçidi (commit: 1dc401b)
 Tarayıcı fetch bağlamı düzeltmesi (commit: e6175d7)
 ```
@@ -425,10 +424,9 @@ DISCOVERED-005 açık: READING durumunda kaybolan lock için canonical güvenli
 reacquire endpointi yok. `start-reading` yalnız UNREAD içindir; heartbeat için
 gerekli `sessionId` shared/start-reading cevabında bulunmaz.
 
-Reporter lock recovery: DISCOVERED-008 endpoint handoff'u canlı. Frontend
-`resume-transcription` dönüşündeki interval ile heartbeat gönderir ve hata
-alırsa own-lock varsayımını bırakır. Lock yok → resume 200 canlı acceptance
-adımı bekliyor.
+DEVOPS-004 açık: object storage kalıcılığı çözülmedi. Audio playback sırasında
+backend unavailable response'u veya 0:00 metadata görülebilir; gerçek response
+doğrulanmadan frontend playback bug'ı varsayılmaz.
 ```
 
 ## Frontend Known Issues
@@ -447,10 +445,9 @@ ayrı frontend işi kaydedildi; reporter queue bu sorguyu paylaşmaz.
 ## Frontend Resume Pointer
 
 ```text
-FRONTEND-013: Reporter Workspace için canonical report contract'ı eklendi.
-Report history handoff'u canlı doğrulandı. Gerçek `TRANSCRIBING` + lock yok
-study ile `resume-transcription` → own reporter lock → interval'e göre
-heartbeat → draft save → refresh sonrası draft/version zincirini canlı doğrula.
+FRONTEND-014: gerçek COMPLETED/uploaded dictation playback endpointini incele.
+Play, pause, seek ve duration gerçek tarayıcı audio state'i ile doğrulanmalı;
+object storage unavailable/0:00 sonucu backend response'u ile ayrıştırılmalı.
 ```
 
 ## Frontend Observation
