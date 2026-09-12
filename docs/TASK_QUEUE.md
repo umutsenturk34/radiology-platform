@@ -1971,7 +1971,7 @@ gerçek uploaded dictation oynuyor.
 
 **Owner:** FRONTEND  
 **Priority:** P0  
-**Status:** TODO  
+**Status:** IN_PROGRESS
 **Depends On:** FRONTEND-013, BACKEND-028
 
 ### Acceptance

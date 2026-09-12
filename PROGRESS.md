@@ -383,6 +383,12 @@ başarılı olarak tokenlı `/audio` URL'i üretti; ancak canlı `/audio` isteğ
 `NOT_FOUND` / `Object not found.` döndü. Audio binary backend object storage'da
 yok. Frontend fake audio üretmez; player'ın `0:00` kalması frontend playback
 hatası değildir. DEVOPS-004 bu kanıtla `BLOCKED_EXTERNAL` kalır.
+
+FRONTEND-015 IN_PROGRESS — reporter taslağı için yalnız own REPORTER lock
+varken çalışan 3 saniye debounce autosave eklendi. UI, gerçek `PUT` sonucu
+gelmeden başarı göstermez; hazırlık/kaydediliyor/kaydedildi/hata durumlarını
+ayırır. Canlı acceptance için geçerli reporter lock ile taslak düzenleme
+gerekiyor.
 ```
 
 ## Current Frontend Task
@@ -391,6 +397,7 @@ hatası değildir. DEVOPS-004 bu kanıtla `BLOCKED_EXTERNAL` kalır.
 FRONTEND-002 — API Client Foundation
 FRONTEND-003 — Authentication UI
 FRONTEND-014 — Audio Player (BLOCKED_EXTERNAL: DEVOPS-004)
+FRONTEND-015 — Report Autosave
 ```
 
 ## Next Recommended Frontend Task
