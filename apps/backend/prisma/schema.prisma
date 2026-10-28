@@ -104,6 +104,11 @@ enum ReportSource {
   AI_ASSISTED
 }
 
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
 enum HbysDeliveryStatus {
   PENDING
   PROCESSING
@@ -144,6 +149,8 @@ model User {
 
   informationNotes        InformationNote[]
   informationNoteVersions InformationNoteVersion[]
+  reportedImageIncidents  ImageMissingIncident[]   @relation("ImageMissingReportedBy")
+  resolvedImageIncidents  ImageMissingIncident[]   @relation("ImageMissingResolvedBy")
 
   @@index([role, status])
   @@map("users")
@@ -290,10 +297,10 @@ model Study {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  hospital         Hospital             @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
-  patient          Patient              @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  assignedDoctor   User?                @relation("StudyAssignedDoctor", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
-  assignedReporter User?                @relation("StudyAssignedReporter", fields: [assignedReporterId], references: [id], onDelete: SetNull)
+  hospital         Hospital               @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+  patient          Patient                @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  assignedDoctor   User?                  @relation("StudyAssignedDoctor", fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+  assignedReporter User?                  @relation("StudyAssignedReporter", fields: [assignedReporterId], references: [id], onDelete: SetNull)
   statusHistory    StudyStatusHistory[]
   assignments      StudyAssignment[]
   auditLogs        AuditLog[]
@@ -302,6 +309,7 @@ model Study {
   hbysDeliveries   HbysDelivery[]
   informationNotes InformationNote[]
   clinicalData     ClinicalData?
+  imageIncidents   ImageMissingIncident[]
 
   /// Primary deduplication rule (DATA_MODEL.md section 16). Accession numbers
   /// are only unique within a hospital.
@@ -693,4 +701,31 @@ model SlaPolicy {
   // layer and by the seed.
   @@index([category, active])
   @@map("sla_policies")
+}
+
+/// Why a study was parked as IMAGE_MISSING (DATA_MODEL.md section 52).
+///
+/// One row per report, never reused: a study that goes missing twice has two
+/// incidents, so the reason and the resolution of the first stay readable.
+model ImageMissingIncident {
+  id      String @id @default(uuid()) @db.Uuid
+  studyId String @db.Uuid
+
+  reportedBy String   @db.Uuid
+  reason     String   @db.Text
+  reportedAt DateTime @default(now())
+
+  status IncidentStatus @default(OPEN)
+
+  resolvedBy     String?   @db.Uuid
+  resolvedAt     DateTime?
+  resolutionNote String?   @db.Text
+
+  study    Study @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  reporter User  @relation("ImageMissingReportedBy", fields: [reportedBy], references: [id], onDelete: Restrict)
+  resolver User? @relation("ImageMissingResolvedBy", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@index([studyId, status])
+  @@index([status, reportedAt])
+  @@map("image_missing_incidents")
 }

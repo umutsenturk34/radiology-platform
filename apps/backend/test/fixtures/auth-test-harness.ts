@@ -366,6 +366,7 @@ export function createPrismaStub(
   const hbysAttempts: Array<Record<string, unknown>> = [];
   const informationNotes: Array<Record<string, unknown>> = [];
   const informationNoteVersions: Array<Record<string, unknown>> = [];
+  const imageIncidents: Array<Record<string, unknown>> = [];
 
   const withAuthor = (row: Record<string, unknown>) => ({
     ...row,
@@ -459,6 +460,26 @@ export function createPrismaStub(
         );
         matches.forEach((row) => Object.assign(row, data));
         return Promise.resolve({ count: matches.length });
+      },
+    },
+    imageMissingIncident: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: randomUUID(), status: 'OPEN', resolvedBy: null, resolvedAt: null, resolutionNote: null, ...data }; // prettier-ignore
+        imageIncidents.push(row);
+        return Promise.resolve(row);
+      },
+      findFirst: ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          [...imageIncidents]
+            .reverse()
+            .find((row) => Object.entries(where).every(([key, value]) => row[key] === value)) ??
+            null,
+        ),
+      update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = imageIncidents.find((entry) => entry.id === where.id);
+        if (!row) throw new Error('incident not found');
+        Object.assign(row, data);
+        return Promise.resolve(row);
       },
     },
     report: {
@@ -837,7 +858,7 @@ export function createPrismaStub(
     );
   }
 
-  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts, informationNotes, informationNoteVersions, accessRows };
+  return { service, sessions, statusHistory, auditLogs, assignments, dictations, reports, reportVersions, hbysDeliveries, hbysAttempts, informationNotes, informationNoteVersions, imageIncidents, accessRows };
 }
 
 /**
@@ -904,6 +925,7 @@ export interface TestHarness {
   hbysAttempts: Array<Record<string, unknown>>;
   informationNotes: Array<Record<string, unknown>>;
   informationNoteVersions: Array<Record<string, unknown>>;
+  imageIncidents: Array<Record<string, unknown>>;
   /** Jobs the fake queue received, so enqueueing can be asserted. */
   queuedJobs: Array<{ name: string; data: unknown }>;
   /** Objects the in-memory storage adapter received, keyed by storage key. */
@@ -999,6 +1021,7 @@ export async function createTestHarness(
     hbysAttempts: prismaStub.hbysAttempts,
     informationNotes: prismaStub.informationNotes,
     informationNoteVersions: prismaStub.informationNoteVersions,
+    imageIncidents: prismaStub.imageIncidents,
     queuedJobs,
     storedObjects: storage.objects,
     port: options.listen ? (app.getHttpServer().address() as { port: number }).port : 0,

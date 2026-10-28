@@ -19,6 +19,8 @@ export const RealtimeEventType = {
   STUDY_LOCKED: 'study.locked',
   STUDY_UNLOCKED: 'study.unlocked',
   STUDY_WAITING_APPROVAL: 'study.waiting_approval',
+  STUDY_IMAGE_MISSING: 'study.image_missing',
+  STUDY_IMAGE_MISSING_RESOLVED: 'study.image_missing.resolved',
 
   HBYS_DELIVERY_PENDING: 'hbys.delivery.pending',
   HBYS_DELIVERY_SENT: 'hbys.delivery.sent',
@@ -128,6 +130,23 @@ export interface StudyWaitingApprovalPayload {
   submittedAt: string;
 }
 
+/**
+ * The reason is deliberately absent (section 52): the hospital room is wider
+ * than the people entitled to read a clinical note, so the client fetches it
+ * over REST where authorization already applies.
+ */
+export interface StudyImageMissingPayload {
+  incidentId: string;
+  reportedByUserId: string;
+  reportedAt: string;
+}
+
+export interface StudyImageMissingResolvedPayload {
+  incidentId: string;
+  resolvedByUserId: string;
+  resolvedAt: string;
+}
+
 export interface HbysDeliveryPendingPayload {
   deliveryId: string;
   reportVersionId: string;
@@ -189,6 +208,8 @@ export interface RealtimeEventPayloads {
   [RealtimeEventType.STUDY_LOCKED]: StudyLockedPayload;
   [RealtimeEventType.STUDY_UNLOCKED]: StudyUnlockedPayload;
   [RealtimeEventType.STUDY_WAITING_APPROVAL]: StudyWaitingApprovalPayload;
+  [RealtimeEventType.STUDY_IMAGE_MISSING]: StudyImageMissingPayload;
+  [RealtimeEventType.STUDY_IMAGE_MISSING_RESOLVED]: StudyImageMissingResolvedPayload;
   [RealtimeEventType.HBYS_DELIVERY_PENDING]: HbysDeliveryPendingPayload;
   [RealtimeEventType.HBYS_DELIVERY_SENT]: HbysDeliverySentPayload;
   [RealtimeEventType.HBYS_DELIVERY_FAILED]: HbysDeliveryFailedPayload;

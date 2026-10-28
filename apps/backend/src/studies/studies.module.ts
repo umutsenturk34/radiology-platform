@@ -5,6 +5,7 @@ import { StudiesService } from './studies.service';
 import { StudyFlagsService } from './study-flags.service';
 import { StudyImagesService } from './study-images.service';
 import { StudyActionsService } from './study-actions.service';
+import { ImageMissingService } from './image-missing.service';
 import { AuthModule } from '../auth/auth.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { LocksModule } from '../locks/locks.module';
@@ -24,7 +25,13 @@ import { RealtimeModule } from '../realtime/realtime.module';
 @Module({
   imports: [AuthModule, WorkflowModule, LocksModule, DictationsModule, SlaModule, RealtimeModule],
   controllers: [StudyActionsController, StudiesController],
-  providers: [StudiesService, StudyFlagsService, StudyImagesService, StudyActionsService],
+  providers: [
+    StudiesService,
+    StudyFlagsService,
+    StudyImagesService,
+    StudyActionsService,
+    ImageMissingService,
+  ],
   exports: [StudiesService, StudyFlagsService, StudyImagesService, StudyActionsService],
 })
 export class StudiesModule {}

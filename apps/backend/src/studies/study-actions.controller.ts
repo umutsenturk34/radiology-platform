@@ -2,6 +2,9 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestj
 import { ParseUUIDPipe } from '@nestjs/common';
 import { UserRole } from '@radiology/shared';
 import { StudyActionsService } from './study-actions.service';
+import { ImageMissingService } from './image-missing.service';
+import { MarkImageMissingDto } from './dto/mark-image-missing.dto';
+import { ResolveImageMissingDto } from './dto/resolve-image-missing.dto';
 import { ForceReleaseLockDto } from './dto/force-release-lock.dto';
 import { CompleteReadingDto } from './dto/complete-reading.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -24,7 +27,10 @@ const studyIdPipe = new ParseUUIDPipe({
  */
 @Controller('studies')
 export class StudyActionsController {
-  constructor(private readonly actions: StudyActionsService) {}
+  constructor(
+    private readonly actions: StudyActionsService,
+    private readonly imageMissing: ImageMissingService,
+  ) {}
 
   @Roles(UserRole.DOCTOR)
   @Post(':studyId/start-reading')
@@ -45,6 +51,28 @@ export class StudyActionsController {
     @Body() dto: CompleteReadingDto,
   ) {
     return this.actions.completeReading(user, studyId, dto);
+  }
+
+  @Roles(UserRole.DOCTOR)
+  @Post(':studyId/image-missing')
+  @HttpCode(HttpStatus.OK)
+  async markImageMissing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+    @Body() dto: MarkImageMissingDto,
+  ) {
+    return this.imageMissing.markImageMissing(user, studyId, dto.reason);
+  }
+
+  @Roles(UserRole.OPERATION, UserRole.MANAGER)
+  @Post(':studyId/image-missing/resolve')
+  @HttpCode(HttpStatus.OK)
+  async resolveImageMissing(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('studyId', studyIdPipe) studyId: string,
+    @Body() dto: ResolveImageMissingDto,
+  ) {
+    return this.imageMissing.resolveImageMissing(user, studyId, dto.resolutionNote);
   }
 
   @Get(':studyId/lock')

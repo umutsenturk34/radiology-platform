@@ -11,6 +11,8 @@ import {
   type RealtimeActor,
   type SlaOverduePayload,
   type SlaWarningPayload,
+  type StudyImageMissingPayload,
+  type StudyImageMissingResolvedPayload,
   type StudyLockedPayload,
   type StudyStatus,
   type StudyUnlockedPayload,
@@ -114,14 +116,40 @@ export class RealtimeService {
    * this doctor's business (section 84). The accompanying status change is
    * what tells the rest of the hospital anything happened.
    */
-  emitStudyWaitingApproval(
-    context: StudyContext,
-    payload: StudyWaitingApprovalPayload,
-  ): void {
+  emitStudyWaitingApproval(context: StudyContext, payload: StudyWaitingApprovalPayload): void {
     this.gateway.emit(
       [realtimeRoom.user(payload.doctorId)],
       createRealtimeEvent({
         type: RealtimeEventType.STUDY_WAITING_APPROVAL,
+        hospitalId: context.hospitalId,
+        studyId: context.studyId,
+        actor: context.actor,
+        payload,
+      }),
+    );
+  }
+
+  emitStudyImageMissing(context: StudyContext, payload: StudyImageMissingPayload): void {
+    this.gateway.emit(
+      this.studyRooms(context),
+      createRealtimeEvent({
+        type: RealtimeEventType.STUDY_IMAGE_MISSING,
+        hospitalId: context.hospitalId,
+        studyId: context.studyId,
+        actor: context.actor,
+        payload,
+      }),
+    );
+  }
+
+  emitStudyImageMissingResolved(
+    context: StudyContext,
+    payload: StudyImageMissingResolvedPayload,
+  ): void {
+    this.gateway.emit(
+      this.studyRooms(context),
+      createRealtimeEvent({
+        type: RealtimeEventType.STUDY_IMAGE_MISSING_RESOLVED,
         hospitalId: context.hospitalId,
         studyId: context.studyId,
         actor: context.actor,
