@@ -164,8 +164,8 @@ except the two items that have no model (see Blockers).
 ## Next Recommended Backend Task
 
 ```text
-BACKEND-042 Image missing               (P1, next to claim)
--> BACKEND-040 Accelerated SLA dev mode (P2, builds on BACKEND-039)
+BACKEND-043 Wont report                 (P1, next to claim)
+-> BACKEND-040 Accelerated SLA dev mode (P1, builds on BACKEND-039)
 -> DISCOVERED-005 External lock model   (P2, unblocks flags.externalLockConflict)
 ```
 
@@ -220,6 +220,7 @@ BACKEND-020 PACS read endpoints                DONE  (0c8b514)
 BACKEND-045 Realtime gateway                   DONE  (63f859e)
 DISCOVERED-003 Clinical data model             DONE  (see Frontend handoff)
 DISCOVERED-004 Study detail contract           DONE  (see Frontend handoff)
+BACKEND-042 Image missing                      DONE  (0f7bc98; NOT deployed yet, migration pending on Railway)
 ```
 
 ## Backend Blockers

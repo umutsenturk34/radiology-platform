@@ -2740,7 +2740,7 @@ test/information.e2e-spec.ts   27 test
 
 **Owner:** BACKEND  
 **Priority:** P1  
-**Status:** TODO  
+**Status:** DONE  
 **Depends On:** BACKEND-014
 
 ### Flow
@@ -2756,6 +2756,19 @@ IMAGE_MISSING → UNREAD
 - incident
 - audit
 - lock release
+
+### Completed
+
+- `POST /studies/:id/image-missing` (DOCTOR, lock owner, status READING): opens an
+  `ImageMissingIncident`, READING -> IMAGE_MISSING, clears the doctor assignment,
+  releases the lock after commit, audit `IMAGE_MISSING_REPORTED`. Reason required.
+- `POST /studies/:id/image-missing/resolve` (OPERATION / MANAGER): closes the
+  incident, IMAGE_MISSING -> UNREAD, audit `IMAGE_MISSING_RESOLVED`. Note optional.
+- Migration `20260903220000_add_image_missing_incidents` (additive).
+- Realtime `study.image_missing` / `study.image_missing.resolved` (reason not broadcast).
+- Not done: the "SYSTEM integration" resolver (no integration event defined),
+  and Manager marking (needs a lock, so left to the Doctor flow).
+- Tests: 17 e2e, 2 unit; frontend impact: FRONTEND-024 is unblocked.
 
 ---
 
